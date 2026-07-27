@@ -1,130 +1,130 @@
 # Elagix — Milestones
 
-Cada milestone referencia a seção do `specs.md` que já resolve a técnica — aqui é só sequenciamento de entrega, não decisão nova.
+Each milestone references the `specs.md` section that already settles the technique — this file is just delivery sequencing, not a new decision.
 
-- [x] **M0 — Scaffold**: projeto Rust em `~/projects/elagix` (raiz do repo, fora do `bench/`), `cargo build` limpo. *(feito, 2026-07-26)*
-- [x] **M1 — Mecanismo de interceptação**: shim de PATH funcionando — TTY detection, resolução do binário real, passthrough vs captura. (specs §5.1) *(feito, 2026-07-26)*
-- [x] **M2 — Camada A completa**: `git status`, `git log`, `git diff`/`git show`, `pytest`, `cargo test` — os 5 comandos validados na auditoria (specs §10). Todos testados ao vivo contra o RTK de verdade (ver seção "Validado" abaixo). (specs §5.4) *(feito, 2026-07-26)*
-- [x] **M3 — Camada B (pipeline declarativo)**: motor de regras genérico pra cauda longa, formato TOML (decidido em specs §13). (specs §5.2/5.3) *(feito, 2026-07-26)*
-- [x] **M4 — Reversibilidade, cache e dedup**: armazém endereçado por hash, disclosure progressivo, cache com invalidação por tipo, deduplicação entre chamadas. Política de limpeza de disco decidida antes de ligar. (specs §8) *(feito, 2026-07-26 — escopo v1: cache só pra `git show <sha>` explícito, ver detalhe abaixo)*
-- [x] **M5 — `bornes/mcp`**: proxy JSON-RPC com lazy-loading de schema. (specs §6.1) *(feito, 2026-07-26)*
-- [x] **M6 — `bornes/mcp` resultado**: compressão do resultado de chamada de ferramenta MCP, reusando técnicas JSON de §5.5. (specs §6.2) *(feito, 2026-07-26, implementado junto com o M5 — os dois compartilham o mesmo proxy)*
-- [x] **M7 — `bornes/prosa`**: TF-IDF extrativo, integrado no corpo de commit (M2). (specs §7) *(feito, 2026-07-26 — escopo revisado durante a implementação: NÃO integra com `/compress`, ver detalhe abaixo)*
-- [x] **M8 — Empacotamento**: instalador cross-platform, binários pra Windows/Linux/Mac. *(feito, 2026-07-26 — Windows/Linux completos e ativados de verdade; Mac com cross-compile explicitamente adiado, ver detalhe abaixo)*
+- [x] **M0 — Scaffold**: Rust project at `~/projects/elagix` (repo root, outside `bench/`), clean `cargo build`. *(done, 2026-07-26)*
+- [x] **M1 — Interception mechanism**: PATH shim working — TTY detection, real-binary resolution, passthrough vs. capture. (specs §5.1) *(done, 2026-07-26)*
+- [x] **M2 — Layer A complete**: `git status`, `git log`, `git diff`/`git show`, `pytest`, `cargo test` — the 5 commands validated in the audit (specs §10). All tested live against the real RTK (see "Validated" section below). (specs §5.4) *(done, 2026-07-26)*
+- [x] **M3 — Layer B (declarative pipeline)**: generic rule engine for the long tail, TOML format (decided in specs §13). (specs §5.2/5.3) *(done, 2026-07-26)*
+- [x] **M4 — Reversibility, cache, and dedup**: content-addressed store, progressive disclosure, cache with per-type invalidation, deduplication across calls. Disk cleanup policy decided before turning it on. (specs §8) *(done, 2026-07-26 — v1 scope: cache only for explicit `git show <sha>`, see detail below)*
+- [x] **M5 — `bornes/mcp`**: JSON-RPC proxy with schema lazy-loading. (specs §6.1) *(done, 2026-07-26)*
+- [x] **M6 — `bornes/mcp` result**: MCP tool call result compression, reusing the JSON techniques from §5.5. (specs §6.2) *(done, 2026-07-26, implemented together with M5 — both share the same proxy)*
+- [x] **M7 — `bornes/prosa`**: extractive TF-IDF, integrated into the commit body (M2). (specs §7) *(done, 2026-07-26 — scope revised during implementation: does NOT integrate with `/compress`, see detail below)*
+- [x] **M8 — Packaging**: cross-platform installer, binaries for Windows/Linux/Mac. *(done, 2026-07-26 — Windows/Linux complete and genuinely activated; Mac cross-compile explicitly deferred, see detail below)*
 
-## Validado ao vivo nesta sessão (2026-07-26)
+## Validated live this session (2026-07-26)
 
-Testado contra o repositório real `bastion-agent`, via shim instalado em `~/.elagix/shims/` (symlinks `git`/`pytest` apontando pro binário release):
+Tested against the real `bastion-agent` repository, via the shim installed at `~/.elagix/shims/` (`git`/`pytest` symlinks pointing at the release binary):
 
-| Comando | Bruto | Elagix | Redução | Observação |
+| Command | Raw | Elagix | Reduction | Note |
 |---|---|---|---|---|
-| `git status` (branch limpo) | 174B | 28B | 84% | Idêntico ao RTK |
-| `git log -5` | 9.313B | 204B | 97,8% | Mesma técnica do RTK (mantém 1º commit, corta resto) |
-| `git show HEAD` (diff de "cargo fmt", 6 arquivos) | 32.001B | 5.740B | 82,1% | **Melhor que o RTK** (71,43% no mesmo diff, seção 9) |
-| `pytest` (erro de import) | 3.245B | 106B | 96,7% | **Melhor que o RTK**: preserva `ModuleNotFoundError: ...` — RTK só diz "No tests collected", sem motivo |
-| `cargo test --lib control_plane` | — | — | — | Resumo limpo extraído ("60 passed; 0 failed... 426 filtered out"), sem o log verboso de compilação |
+| `git status` (clean branch) | 174B | 28B | 84% | Identical to RTK |
+| `git log -5` | 9,313B | 204B | 97.8% | Same technique as RTK (keeps 1st commit, cuts the rest) |
+| `git show HEAD` ("cargo fmt" diff, 6 files) | 32,001B | 5,740B | 82.1% | **Better than RTK** (71.43% on the same diff, section 9) |
+| `pytest` (import error) | 3,245B | 106B | 96.7% | **Better than RTK**: preserves `ModuleNotFoundError: ...` — RTK only says "No tests collected", no reason given |
+| `cargo test --lib control_plane` | — | — | — | Clean summary extracted ("60 passed; 0 failed... 426 filtered out"), no verbose compile log |
 
-Exit codes preservados em todos os casos (`pytest` corretamente sai com 2, não 0).
+Exit codes preserved in every case (`pytest` correctly exits with 2, not 0).
 
-### Camada B (M3, validado ao vivo 2026-07-26)
+### Layer B (M3, validated live 2026-07-26)
 
-Motor genérico em `src/camada_b/` — `FilterFile` (TOML) + `Step` (enum com tag `action`) + `engine::apply()`. Ações no v1: `strip_ansi`, `replace`, `match_output`, `keep_lines_matching`/`strip_lines_matching`, `dedup`, `truncate_lines`, `max_lines`, `on_empty` (as demais do catálogo §5.3 — `group_by`, `json_extract`/`json_schema`, `state_machine`, `aggregate`, `format_template`, `compact_path` — ficam pra quando algum comando do v1 realmente precisar). `match_output`/`on_empty` só disparam com `exit_code == 0`, mesma regra de negócio 2/3 da Camada A. 4 filtros de exemplo embutidos via `include_str!` (`filters-toml/*.toml`): `docker-images`, `git-branch`, `terraform-plan`, `npm-install`. Extensível sem recompilar via `$ELAGIX_FILTERS_DIR` (default `~/.elagix/filters/*.toml`).
+Generic engine in `src/camada_b/` — `FilterFile` (TOML) + `Step` (a tagged `action` enum) + `engine::apply()`. v1 actions: `strip_ansi`, `replace`, `match_output`, `keep_lines_matching`/`strip_lines_matching`, `dedup`, `truncate_lines`, `max_lines`, `on_empty` (the rest of the §5.3 catalog — `group_by`, `json_extract`/`json_schema`, `state_machine`, `aggregate`, `format_template`, `compact_path` — are left for whenever a v1 command actually needs them). `match_output`/`on_empty` only fire with `exit_code == 0`, the same business rule 2/3 as Layer A. 4 example filters embedded via `include_str!` (`filters-toml/*.toml`): `docker-images`, `git-branch`, `terraform-plan`, `npm-install`. Extensible without recompiling via `$ELAGIX_FILTERS_DIR` (default `~/.elagix/filters/*.toml`).
 
-| Comando | Bruto | Elagix | Redução | Observação |
+| Command | Raw | Elagix | Reduction | Note |
 |---|---|---|---|---|
-| `git branch -a` (bastion-agent) | 353B | 316B | 10,5% | Removeu só `remotes/origin/HEAD -> origin/main`; lista não passou do teto de 25 linhas |
-| `docker images` (21 imagens reais) | 1.782B | 1.234B | 30,8% | `max_lines(15)` cortou 7 imagens; nenhuma `<none>:<none>` presente pra `strip_lines_matching` agir |
-| `terraform plan` (fixture local, 1 recurso) | 1.492B | 1.290B | 13,5% | Modesto de propósito: sem refresh de estado real nem recursos "sem mudança" nessa fixture pequena — confirma o teto arquitetural já documentado (specs §10.3, tipo de falha nº 3): regra de ruído específico só ajuda quando o ruído aparece de fato |
+| `git branch -a` (bastion-agent) | 353B | 316B | 10.5% | Only removed `remotes/origin/HEAD -> origin/main`; the list didn't exceed the 25-line cap |
+| `docker images` (21 real images) | 1,782B | 1,234B | 30.8% | `max_lines(15)` cut 7 images; no `<none>:<none>` present for `strip_lines_matching` to act on |
+| `terraform plan` (local fixture, 1 resource) | 1,492B | 1,290B | 13.5% | Deliberately modest: no real state refresh or "no change" resources in this small fixture — confirms the architectural ceiling already documented (specs §10.3, failure type #3): a specific-noise rule only helps when that noise actually shows up |
 
-6 testes unitários novos em `src/camada_b/engine.rs` (total do projeto: 20 testes, todos passando).
+6 new unit tests in `src/camada_b/engine.rs` (project total: 20 tests, all passing).
 
-**Quatro bugs reais achados e corrigidos testando ao vivo** (documentados como comentário no código, motivo de cada correção mantido junto):
-1. **Recursão do shim** (`src/shim.rs`): a versão inicial tentava descobrir a própria pasta a partir de `argv[0]`, assumindo que o shell sempre passa o caminho completo — bash às vezes só passa o nome nu ("git"), causando o shim se encontrar de novo e filtrar a própria saída duas vezes. Corrigido: a pasta de shims agora é conhecida de antemão (`~/.elagix/shims` ou `$ELAGIX_SHIMS_DIR`), não descoberta.
-2. **Filtro desligado no caso de maior valor** (`src/main.rs`): a regra "nenhum atalho de sucesso se o processo falhou" tinha virado, por engano, "só filtra se `exit_code == 0`" — isso desligava o filtro do pytest bem no caso que mais queríamos mostrar (falha de coleta de teste, que sai com código != 0). Corrigido: cada filtro é responsável por nunca fabricar sucesso; a filtragem em si roda sempre.
-3. **`git diff` sem cabeçalho de commit** (`src/filters/git_diff.rs`): `git diff` (working tree) começa direto em "diff --git", sem o bloco de commit que `git show` tem antes — a detecção original só procurava `"\ndiff --git"` (com quebra de linha antes), falhando nesse caso real e caindo em fail-open sem filtrar nada.
-4. **Corte no meio do diff deixava saída parecendo código quebrado** (`src/filters/git_diff.rs`): ao bater o teto de linhas alteradas por arquivo, a versão inicial continuava mostrando cabeçalhos `@@` e contexto dos hunks seguintes, só escondendo as linhas `+`/`-` — resultado parecia sintaxe quebrada (chamada de função incompleta, chave sem fechar). Corrigido pra parar de vez no primeiro excesso, com contagem clara do que foi omitido.
+**Four real bugs found and fixed while testing live** (documented as code comments, with the reason for each fix kept alongside):
+1. **Shim recursion** (`src/shim.rs`): the initial version tried to discover its own folder from `argv[0]`, assuming the shell always passes the full path — bash sometimes passes just the bare name ("git"), causing the shim to find itself again and filter its own output twice. Fixed: the shims folder is now known ahead of time (`~/.elagix/shims` or `$ELAGIX_SHIMS_DIR`), not discovered.
+2. **Filter turned off in the highest-value case** (`src/main.rs`): the rule "no success shortcut if the process failed" had, by mistake, become "only filter if `exit_code == 0`" — that turned off pytest's filter in exactly the case we most wanted to show off (test collection failure, which exits with a non-zero code). Fixed: each filter is responsible for never fabricating success; filtering itself always runs.
+3. **`git diff` with no commit header** (`src/filters/git_diff.rs`): `git diff` (working tree) starts directly with "diff --git", without the commit block `git show` has before it — the original detection only looked for `"\ndiff --git"` (with a newline before it), failing on this real case and falling back to fail-open with no filtering at all.
+4. **A cut in the middle of a diff made the output look like broken code** (`src/filters/git_diff.rs`): once the per-file changed-line cap was hit, the initial version kept showing `@@` headers and context from later hunks, only hiding the `+`/`-` lines — the result looked like broken syntax (an incomplete function call, an unclosed brace). Fixed to stop for good on the first excess, with a clear count of what was omitted.
 
-### M4 — armazém, cache, disclosure progressivo, dedup (validado ao vivo 2026-07-26)
+### M4 — store, cache, progressive disclosure, dedup (validated live 2026-07-26)
 
-Três decisões pendentes resolvidas antes de implementar (specs §13): armazém em disco (`~/.elagix/store/`, layout arquivo-por-hash, sem índice em RAM), limpeza por expiração de 14 dias com varredura preguiçosa (~2% de chance por escrita, mais `elagix store clear`/`elagix store gc` manuais), e escopo do cache v1 restrito a `git show <sha explícito>` (único caso comprovadamente imutável sem heurística — `HEAD`/branch ficam de fora).
+Three pending decisions resolved before implementing (specs §13): the disk store (`~/.elagix/store/`, file-per-hash layout, no in-RAM index), cleanup by 14-day expiration with a lazy sweep (~2% chance per write, plus manual `elagix store clear`/`elagix store gc`), and v1 cache scope restricted to `git show <explicit sha>` (the only case provably immutable without a heuristic — `HEAD`/branch are excluded).
 
-Módulo novo `src/store/` — CAS (`put`/`get`, sha256 truncado a 64 bits) + cache por chave (`put_keyed`/`get_keyed`, chave versionada `git-show:v1:<sha>` pra não servir saída obsoleta se o filtro mudar) + dedup por janela deslizante (`check_and_record_dedup`, limitação documentada em specs §8.3: aproxima "sessão" por tempo, não por id real) + `force_gc`/`clear_all`. Meta-comandos novos: `elagix show <hash>`, `elagix store clear`, `elagix store gc` — tratados em `main.rs` antes de qualquer resolução de shim (não existe "elagix real" no PATH).
+New module `src/store/` — CAS (`put`/`get`, sha256 truncated to 64 bits) + keyed cache (`put_keyed`/`get_keyed`, a versioned key `git-show:v1:<sha>` so it never serves stale output if the filter changes) + sliding-window dedup (`check_and_record_dedup`, a limitation documented in specs §8.3: approximates "session" by time, not by a real id) + `force_gc`/`clear_all`. New meta-commands: `elagix show <hash>`, `elagix store clear`, `elagix store gc` — handled in `main.rs` before any shim resolution (there's no "real elagix" on the PATH).
 
-| Mecanismo | Teste ao vivo | Resultado |
+| Mechanism | Live test | Result |
 |---|---|---|
-| Cache (`git show <sha>`, bastion-agent) | 1ª chamada roda de verdade, 2ª chamada pega do cache | 0,023s → 0,001s (~23×), saída byte-idêntica (`diff` confirmou) |
-| Disclosure progressivo (`git show`, mesmo diff de 32.001B da validação do M2) | Saída filtrada (5.786B) ganhou a dica `(bruto completo: elagix show c8a886791a32083d)` | `elagix show c8a886791a32083d` recuperou os 32.001B originais exatos |
-| Dedup (`git branch -a` repetido, janela de 60s) | 1ª chamada: 316B normais. 2ª chamada idêntica: colapsada | 316B → 75B (`(igual à saída anterior — elagix show ... pra ver de novo)`) |
+| Cache (`git show <sha>`, bastion-agent) | 1st call runs for real, 2nd call hits the cache | 0.023s → 0.001s (~23×), byte-identical output (confirmed with `diff`) |
+| Progressive disclosure (`git show`, the same 32,001B diff from M2's validation) | Filtered output (5,786B) gained the hint `(full output: elagix show c8a886791a32083d)` | `elagix show c8a886791a32083d` recovered the exact original 32,001B |
+| Dedup (repeated `git branch -a`, 60s window) | 1st call: normal 316B. Identical 2nd call: collapsed | 316B → 75B (`(same as previous output — elagix show ... to view it again)`) |
 
-Regra de negócio 6 (nunca inflar) e regra 2/3 (nenhum atalho de sucesso em processo não-bem-sucedido) verificadas no código: cache só grava com `exit_code == 0`; dedup só substitui se a mensagem de referência for mais curta que a saída original. 5 testes unitários novos em `src/store/mod.rs` (total do projeto: 25 testes, todos passando).
+Business rule 6 (never inflate) and rule 2/3 (no success shortcut on an unsuccessful process) verified in code: cache only writes with `exit_code == 0`; dedup only substitutes if the reference message is shorter than the original output. 5 new unit tests in `src/store/mod.rs` (project total: 25 tests, all passing).
 
-**Escopo explicitamente deixado pra depois** (não é lacuna, é decisão de fase): cache de working-tree (`git status`/`git diff` sem commit fixo, precisa checar mtime de `.git/index`) e de leitura de arquivo (não há parser de `read`/`smart` ainda) — specs §8.2 já cataloga os dois como próximos candidatos quando existir uma razão concreta pra priorizá-los.
+**Scope explicitly left for later** (not a gap, a phasing decision): working-tree cache (`git status`/`git diff` with no fixed commit, needs to check `.git/index` mtime) and file-read cache (there's no `read`/`smart` parser yet) — specs §8.2 already lists both as the next candidates once there's a concrete reason to prioritize them.
 
-### M5/M6 — `bornes/mcp`: proxy JSON-RPC (validado ao vivo 2026-07-26)
+### M5/M6 — `bornes/mcp`: JSON-RPC proxy (validated live 2026-07-26)
 
-Diferente do shim de `bornes/comandos` (processo curto, uma chamada só), este é um processo **de vida longa**: `elagix mcp -- <comando do servidor real> [args...]` spawna o servidor MCP de verdade como filho e fica no meio da conversa inteira, sobre stdio (newline-delimited JSON-RPC, sem framing tipo LSP). Módulo novo `src/mcp_proxy/` — `mod.rs` (spawn + duas threads: uma repassa cliente→servidor interceptando `tools/call get_tool_schema` e `tools/list`/`tools/call` pendentes; a principal lê servidor→cliente e aplica a transformação certa por `id` de requisição), `schema.rs` (lazy-loading, specs §6.1) e `compress.rs` (compressão de resultado, specs §6.2).
+Unlike `bornes/comandos`'s shim (a short, one-shot process), this is a **long-lived** process: `elagix mcp -- <real server command> [args...]` spawns the real MCP server as a child and stays in the middle of the whole conversation, over stdio (newline-delimited JSON-RPC, no LSP-style framing). New module `src/mcp_proxy/` — `mod.rs` (spawn + two threads: one forwards client→server, intercepting `tools/call get_tool_schema` and pending `tools/list`/`tools/call`; the main one reads server→client and applies the right transformation per request `id`), `schema.rs` (lazy-loading, specs §6.1), and `compress.rs` (result compression, specs §6.2).
 
-**Lazy-loading de schema**: `tools/list` devolve wrappers mínimos (nome + primeira frase da descrição + `inputSchema` genérico `{"type":"object"}`) e injeta uma ferramenta sintética `get_tool_schema`. O schema completo original fica cacheado em memória (por processo, dura a sessão MCP); quando o modelo chama `get_tool_schema("X")`, o proxy responde **localmente**, sem nunca repassar essa chamada pro servidor real (que nem conhece essa ferramenta).
+**Schema lazy-loading**: `tools/list` returns minimal wrappers (name + first sentence of the description + a generic `inputSchema` of `{"type":"object"}`) and injects a synthetic `get_tool_schema` tool. The original full schema is cached in memory (per process, lasts the MCP session); when the model calls `get_tool_schema("X")`, the proxy answers **locally**, never forwarding that call to the real server (which doesn't even know about this tool).
 
-**Compressão de resultado**: só as 3 técnicas puramente mecânicas de specs §5.5 (nenhuma tenta adivinhar relevância semântica de campo): remove `null` recursivamente, corta string longa mantendo prefixo + contagem, capa array grande em 10 itens + marcador `_elagix_omitted_items`. Poda de campo por relevância (paginação, HATEOAS) fica de fora do v1 — dependeria de conhecer a API específica.
+**Result compression**: only the 3 purely mechanical techniques from specs §5.5 (none of them tries to guess a field's semantic relevance): recursively removes `null`, truncates a long string keeping a prefix + a count, caps a large array at 10 items + an `_elagix_omitted_items` marker. Field pruning by relevance (pagination, HATEOAS) is left out of v1 — it would require knowing the specific API.
 
-Testado ao vivo com um servidor MCP de teste próprio (`fake_mcp_server.py`, uma ferramenta `search_docs` com descrição de parágrafo inteiro e resultado com nulls/array de 30 itens/strings longas — fixture controlada, não um servidor de terceiro):
+Tested live with our own test MCP server (`fake_mcp_server.py`, a `search_docs` tool with a whole-paragraph description and a result with nulls/a 30-item array/long strings — a controlled fixture, not a third-party server):
 
-| Mensagem | Bruto | Elagix | Redução |
+| Message | Raw | Elagix | Reduction |
 |---|---|---|---|
-| `tools/list` (2 ferramentas verbosas) | 1.047B | 566B | 45,9% |
-| `get_tool_schema("search_docs")` | — | 962B | recupera o schema **completo e exato** — round-trip validado |
-| `tools/call("search_docs")` | 16.658B | 4.530B | 72,8% |
+| `tools/list` (2 verbose tools) | 1,047B | 566B | 45.9% |
+| `get_tool_schema("search_docs")` | — | 962B | recovers the **complete and exact** schema — round trip validated |
+| `tools/call("search_docs")` | 16,658B | 4,530B | 72.8% |
 
-**Bug real achado e corrigido testando ao vivo**: deadlock de pipe no encerramento — o `Arc<Mutex<ChildStdin>>` tinha uma cópia extra presa no escopo de `run()` além da cópia da thread de encaminhamento; o stdin do processo filho só fecha de vez quando a ÚLTIMA cópia do `Arc` cai, então o servidor real (lendo stdin até EOF) nunca recebia esse EOF, nunca saía sozinho, e `child.wait()` travava pra sempre. Corrigido com um `drop()` explícito da cópia do escopo principal logo após spawnar a thread.
+**Real bug found and fixed testing live**: a pipe deadlock on shutdown — the `Arc<Mutex<ChildStdin>>` had an extra copy stuck in `run()`'s scope besides the forwarding thread's copy; the child process's stdin only truly closes once the LAST copy of the `Arc` is dropped, so the real server (reading stdin until EOF) never got that EOF, never exited on its own, and `child.wait()` hung forever. Fixed with an explicit `drop()` of the main scope's copy right after spawning the thread.
 
-8 testes unitários novos (`schema.rs` + `compress.rs`, total do projeto: 32 testes, todos passando). Regra de negócio 6 verificada em três pontos: `transform_tools_list` e `compress_tools_call_result` comparam o tamanho da mensagem JSON-RPC inteira antes/depois e caem pro original se a transformação não render (teste `tiny_single_tool_falls_back_to_original` prova isso: 1 ferramenta minúscula não amortiza o custo fixo de injetar `get_tool_schema`).
+8 new unit tests (`schema.rs` + `compress.rs`, project total: 32 tests, all passing). Business rule 6 verified at three points: `transform_tools_list` and `compress_tools_call_result` compare the whole JSON-RPC message's size before/after and fall back to the original if the transformation doesn't pay off (the `tiny_single_tool_falls_back_to_original` test proves this: a single tiny tool doesn't amortize the fixed cost of injecting `get_tool_schema`).
 
-**Escopo deixado pra depois**: OAuth e streaming HTTP remoto (specs §13 já cataloga isso como fora do v1); poda de campo por relevância semântica; requests que o PRÓPRIO servidor inicia (ex.: `sampling/createMessage`) passam direto sem interceptação, já que não é esse o eixo de desperdício de token que motivou o borne.
+**Scope left for later**: OAuth and remote HTTP streaming (specs §13 already lists this as out of v1); field pruning by semantic relevance; requests the server ITSELF initiates (e.g. `sampling/createMessage`) pass straight through with no interception, since that isn't the token-waste axis that motivated this borne.
 
-### M7 — `bornes/prosa` (validado ao vivo 2026-07-26)
+### M7 — `bornes/prosa` (validated live 2026-07-26)
 
-Módulo novo `src/prosa/` — `summarize(text, max_sentences)`: TF-IDF clássico (tf normalizado por frase, idf suavizado `ln(N/df)+1`, stopwords EN+PT já que os commits deste projeto misturam os dois idiomas), extrai as frases de maior pontuação preservando a ORDEM ORIGINAL (não a ordem de score — resumo fora de ordem cronológica confundiria mais do que ajudaria). Fail-open: texto já dentro do teto de frases volta sem modificação.
+New module `src/prosa/` — `summarize(text, max_sentences)`: classic TF-IDF (tf normalized per sentence, idf smoothed with `ln(N/df)+1`, EN+PT stopwords since this project's own commits mix both languages), extracts the highest-scoring sentences while preserving their ORIGINAL order (not score order — a summary out of chronological order would confuse more than it would help). Fail-open: text already within the sentence cap comes back unmodified.
 
-Integrado nos dois lugares que já discartavam corpo de commit por completo:
-- `filters/git_log.rs`: o corpo do primeiro commit agora aparece como `resumo: <frase>` (quando de fato encolheu) ou `corpo: <frase>` (quando já era 1 frase só, mostrado por completo em vez de rotulado como se tivesse sido comprimido — regra de negócio 5).
-- `filters/git_diff.rs` (`git show`): achado real durante a implementação — o filtro descartava até o **hash e o assunto do commit** junto do corpo, não só o corpo. Ninguém tinha notado (a saída de `git show` filtrada nunca dizia qual commit era aquele diff). Corrigido: mantém `commit <hash> — <assunto>` + resumo do corpo antes dos hunks.
+Integrated into the two places that used to drop a commit's body entirely:
+- `filters/git_log.rs`: the first commit's body now shows up as `summary: <sentence>` (when it actually shrank) or `body: <sentence>` (when it was already a single sentence, shown in full instead of labeled as if it had been compressed — business rule 5).
+- `filters/git_diff.rs` (`git show`): a real finding during implementation — the filter used to drop even the commit's **hash and subject** along with the body, not just the body. Nobody had noticed (the filtered `git show` output never said which commit that diff belonged to). Fixed: now keeps `commit <hash> — <subject>` + a body summary before the hunks.
 
-**Decisão revista durante a implementação** (specs §7.2/§7.3, §13): `/compress` **não** vira uma chamada a `bornes/prosa`, ao contrário do que a especificação anterior presumia. Reexaminando `~/.claude/commands/compress.md` de verdade na hora de integrar, ficou claro que são tarefas diferentes — `/compress` precisa cortar redundância DENTRO de cada frase preservando números/nomes/restrições (julgamento semântico), enquanto TF-IDF extrativo só sabe descartar frases INTEIRAS (arriscaria perder uma restrição que caiu numa frase de score baixo — indo contra a regra de negócio 5). `bornes/prosa` ganhou um utilitário standalone equivalente, `elagix compress` (lê stdin, resume, imprime — teto de frases automático de ~1/3 do original ou `--sentences N` explícito), útil pra prosa que tolera esse tipo de perda, mas não é o motor do slash command do usuário.
+**Decision revised during implementation** (specs §7.2/§7.3, §13): `/compress` **does not** turn into a call to `bornes/prosa`, contrary to what the earlier spec assumed. Re-examining the real `~/.claude/commands/compress.md` while integrating made it clear these are different tasks — `/compress` needs to cut redundancy WITHIN each sentence while preserving numbers/names/constraints (semantic judgment), while extractive TF-IDF can only drop WHOLE sentences (risking the loss of a constraint that landed in a low-scoring sentence — going against business rule 5). `bornes/prosa` gained an equivalent standalone utility, `elagix compress` (reads stdin, summarizes, prints — an automatic sentence cap of ~1/3 of the original, or an explicit `--sentences N`), useful for prose that can tolerate that kind of loss, but it isn't the engine behind the user's slash command.
 
-Testado ao vivo contra o repositório real `bastion-agent` (mesmo commit "cargo fmt" de 2 frases usado na validação do M2/M4):
+Tested live against the real `bastion-agent` repository (the same 2-sentence "cargo fmt" commit used in M2/M4's validation):
 
-| Comando | Antes do M7 | Depois do M7 |
+| Command | Before M7 | After M7 |
 |---|---|---|
-| `git log -5` | corpo do commit descartado por completo, silenciosamente | `resumo: Never ran cargo fmt this session...` (a frase de maior sinal segundo TF-IDF, não a primeira por padrão) |
-| `git show HEAD` | hash/assunto/corpo do commit todos descartados (perda não documentada até agora) | `commit cb93a3bd... — chore: cargo fmt (fix CI fmt-check failure)` + `resumo: ...` antes dos hunks |
-| `elagix compress` (utilitário, 3 frases de teste) | N/A | escolheu a 3ª frase, não a 1ª — TF-IDF pontua por raridade de palavra, não por "importância" intuitiva; comportamento esperado do algoritmo, documentado como limitação conhecida, não bug |
+| `git log -5` | commit body dropped entirely, silently | `summary: Never ran cargo fmt this session...` (the highest-signal sentence per TF-IDF, not the first one by default) |
+| `git show HEAD` | commit hash/subject/body all dropped (a loss undocumented until now) | `commit cb93a3bd... — chore: cargo fmt (fix CI fmt-check failure)` + `summary: ...` before the hunks |
+| `elagix compress` (utility, 3 test sentences) | N/A | picked the 3rd sentence, not the 1st — TF-IDF scores by word rarity, not intuitive "importance"; expected algorithm behavior, documented as a known limitation, not a bug |
 
-6 testes unitários novos em `src/prosa/mod.rs` + 2 atualizados em `git_log.rs`/`git_diff.rs` pra refletir o novo comportamento (total do projeto: 38 testes, todos passando).
+6 new unit tests in `src/prosa/mod.rs` + 2 updated in `git_log.rs`/`git_diff.rs` to reflect the new behavior (project total: 38 tests, all passing).
 
-### M8 — Empacotamento (validado ao vivo 2026-07-26 — **Elagix ativado de verdade nesta sessão**)
+### M8 — Packaging (validated live 2026-07-26 — **Elagix genuinely activated this session**)
 
-Escopo v1: build a partir do código-fonte (`cargo build --release`), não download de binário pronto — não existe pipeline de release/CDN ainda, e não faz sentido fingir que existe. Dois instaladores na raiz do repo:
+v1 scope: build from source (`cargo build --release`), no prebuilt-binary download — there's no release/CDN pipeline yet, and it wouldn't make sense to pretend there is. Two installers at the repo root:
 
-- **`install.sh`** (Linux/Mac/WSL): builda com `cargo`, cria symlinks em `~/.elagix/shims/{git,cargo,pytest,docker,npm,terraform}` (a lista cobre tudo que já tem filtro, Camada A + Camada B), garante `~/.elagix/shims` na frente do `$PATH` via `~/.bashrc`/`~/.zshrc` (idempotente — não duplica a linha rodando de novo).
-- **`install.ps1`** (Windows nativo): não faz symlink de propósito (precisaria de modo desenvolvedor/admin) — copia o `.exe` pra cada nome de comando dentro de `~\.elagix\shims\`, já que o Elagix decide o que filtrar pelo NOME do arquivo (`argv[0]`), não por ser link ou cópia. Procura um `elagix.exe` já compilado (3 caminhos candidatos) antes de tentar compilar na hora; ajusta o PATH do usuário via `[Environment]::SetEnvironmentVariable(...,"User")`, também idempotente.
+- **`install.sh`** (Linux/Mac/WSL): builds with `cargo`, creates symlinks at `~/.elagix/shims/{git,cargo,pytest,docker,npm,terraform}` (the list covers everything that already has a filter, Layer A + Layer B), makes sure `~/.elagix/shims` is ahead in `$PATH` via `~/.bashrc`/`~/.zshrc` (idempotent — doesn't duplicate the line on a re-run).
+- **`install.ps1`** (native Windows): deliberately doesn't symlink (would need developer mode/admin) — copies the `.exe` to each command name inside `~\.elagix\shims\`, since Elagix decides what to filter by the file's NAME (`argv[0]`), not whether it's a link or a copy. Looks for an already-built `elagix.exe` (3 candidate paths) before trying to build it on the spot; adjusts the user's PATH via `[Environment]::SetEnvironmentVariable(...,"User")`, also idempotent.
 
-**Windows — cross-compilado e testado rodando DE VERDADE no PowerShell nativo** (não só `file`/inspeção estática): instalado `mingw-w64` + target `x86_64-pc-windows-gnu` no ambiente de build (WSL); `cargo build --release --target x86_64-pc-windows-gnu` compilou limpo (nenhuma dependência do projeto usa C/FFI, só crates Rust puros — `regex`/`serde`/`serde_json`/`toml`/`sha2` — por isso o mingw bastou, sem precisar de `cargo-zigbuild` nem nada mais elaborado). Copiado o `.exe` pro lado Windows e executado nativamente via PowerShell: `elagix compress`, `elagix show`, `elagix store gc` rodaram e saíram com o código de saída certo.
+**Windows — cross-compiled and tested actually RUNNING on native PowerShell** (not just `file`/static inspection): installed `mingw-w64` + the `x86_64-pc-windows-gnu` target in the build environment (WSL); `cargo build --release --target x86_64-pc-windows-gnu` compiled cleanly (no project dependency uses C/FFI, only pure Rust crates — `regex`/`serde`/`serde_json`/`toml`/`sha2` — which is why mingw was enough, no need for `cargo-zigbuild` or anything more elaborate). Copied the `.exe` to the Windows side and ran it natively via PowerShell: `elagix compress`, `elagix show`, `elagix store gc` ran and exited with the right code.
 
-**Bug real achado e corrigido nesse teste**: `"texto" | elagix.exe compress` chegava com um BOM UTF-8 (`U+FEFF`) na frente do texto — artefato conhecido de como o PowerShell nativo encoda string literal ao mandar pro stdin de um processo, não um bug de lógica do Elagix. Corrigido com `strip_prefix('\u{feff}')` em `run_compress` (specs §7, `main.rs`) — remover BOM nunca perde conteúdo substantivo, então não violava regra de negócio 5.
+**Real bug found and fixed in this test**: `"text" | elagix.exe compress` arrived with a UTF-8 BOM (`U+FEFF`) at the front of the text — a known artifact of how native PowerShell encodes a string literal when sending it to a process's stdin, not an Elagix logic bug. Fixed with `strip_prefix('\u{feff}')` in `run_compress` (specs §7, `main.rs`) — stripping a BOM never loses substantive content, so it didn't violate business rule 5.
 
-**`install.ps1` só testado em modo seguro (cópia isolada), não com ativação completa**: esta máquina de desenvolvimento não tem `git`/`cargo`/`npm` nativos no PATH do Windows — todo o desenvolvimento acontece via WSL (confirmado com `Get-Command`, nenhum resolveu). Rodar o `install.ps1` completo aqui não teria efeito prático nenhum (não existe ferramenta nativa real pra interceptar). O script está correto e testado até onde dá nesta máquina; validação de ativação completa (PATH real + interceptação de um `git.exe`/`npm.exe` nativo de verdade) fica pendente até rodar numa máquina Windows com toolchain nativa instalada.
+**`install.ps1` only tested in safe mode (isolated copy), not with full activation**: this development machine has no native `git`/`cargo`/`npm` on the Windows PATH — all development happens via WSL (confirmed with `Get-Command`, none of them resolved). Running the full `install.ps1` here would have had no practical effect (there's no real native tool to intercept). The script is correct and tested as far as this machine allows; full activation validation (a real PATH + intercepting an actual native `git.exe`/`npm.exe`) remains pending until run on a Windows machine with a native toolchain installed.
 
-**Linux/WSL — ativado de verdade, não só testado**: `install.sh` rodado sem sandbox, `~/.bashrc` alterado de fato. Achado de metodologia (não de bug do produto): validar isso via `wsl -e bash -lc "..."` dá falso negativo — é shell de login NÃO-interativo, e o guard de "só roda o resto se for interativo" no topo do `.bashrc` padrão do Ubuntu barra a leitura da parte que a gente anexou. Testado certo via `bash -ic` (interativo, o que uma aba de terminal de verdade usa):
+**Linux/WSL — genuinely activated, not just tested**: `install.sh` run with no sandbox, `~/.bashrc` actually modified. A methodology finding (not a product bug): validating this via `wsl -e bash -lc "..."` gives a false negative — it's a NON-interactive login shell, and the "only run the rest if interactive" guard at the top of Ubuntu's default `.bashrc` blocks reading the part we appended. Tested correctly via `bash -ic` (interactive, what a real terminal tab uses):
 
 ```
 $ git status | cat
 clean — nothing to commit
 ```
 
-Confirmado: `which git`/`which cargo`/`which pytest` resolvem pra `~/.elagix/shims/`, e `git --version | cat` (comando sem filtro definido) passa direto sem modificação — só os subcomandos com filtro real são tocados.
+Confirmed: `which git`/`which cargo`/`which pytest` resolve to `~/.elagix/shims/`, and `git --version | cat` (a command with no filter defined) passes straight through unmodified — only subcommands with a real filter are touched.
 
-**macOS — cross-compile adiado, com evidência concreta do motivo** (specs §9 já sinalizava isso como fricção conhecida da escolha de Rust): `rustup target add aarch64-apple-darwin` funciona, mas o link falha —
+**macOS — cross-compile deferred, with concrete evidence of why** (specs §9 already flagged this as Rust's known friction point): `rustup target add aarch64-apple-darwin` works, but linking fails —
 
 ```
 warning: invoking "xcrun" "--sdk" "macosx" "--show-sdk-path" ... failed: No such file or directory
@@ -133,25 +133,25 @@ cc: error: unrecognized command-line option '-arch'
 cc: error: unrecognized command-line option '-mmacosx-version-min=11.0.0'
 ```
 
-Precisa do SDK/Xcode de verdade (ou uma ferramenta tipo `cargo-zigbuild`/`osxcross`, nenhuma configurada) — não é algo pra resolver de graça num ambiente Linux puro. Deferido pra quando houver acesso a um Mac real ou um runner de CI com macOS (ex.: GitHub Actions `macos-latest`), nenhum dos dois configurado ainda (não existe repositório remoto/CI pra este projeto — só local, sem commits ainda).
+Needs a real SDK/Xcode (or a tool like `cargo-zigbuild`/`osxcross`, neither configured) — not something to solve for free in a plain Linux environment. Deferred until there's access to a real Mac or a macOS CI runner (e.g. GitHub Actions `macos-latest`), neither configured yet (there was no remote repository/CI for this project at the time — only local, no commits yet).
 
-### Correção crítica pós-M8: a ativação de ontem não valia pra como o Claude Code de fato roda comando (2026-07-26)
+### Critical post-M8 fix: yesterday's activation didn't apply to how Claude Code actually runs commands (2026-07-26)
 
-O usuário perguntou, com razão, "mas o objetivo é economizar token com as IAs, certo? por que 'qualquer terminal WSL novo'?" — isso expôs que a primeira ativação (linha só no `~/.bashrc`) **não tinha efeito nenhum** no jeito real que eu (Claude Code, rodando como extensão VSCode no Windows) invoco comando: sempre via `wsl -e bash -lc "..."` (shell de **login, não-interativo**). Confirmado ao vivo: `which git` mostrava o binário real, `$-` mostrava `hBc` (sem `i`).
+The user asked, rightly, "but the goal is to save tokens with the AIs, right? why 'any new WSL terminal'?" — that exposed that the first activation (a line only in `~/.bashrc`) **had zero effect** on the real way I (Claude Code, running as a VSCode extension on Windows) invoke commands: always via `wsl -e bash -lc "..."` (a **login, non-interactive** shell). Confirmed live: `which git` showed the real binary, `$-` showed `hBc` (no `i`).
 
-Causa raiz: o `~/.bashrc` padrão do Ubuntu tem um guard no topo (`if not interactive, exit`) que descarta qualquer linha anexada no fim do arquivo quando o shell não é interativo — exatamente o caso de `-lc`. bash usa arquivos diferentes conforme a combinação login/interativo, e nenhum arquivo sozinho cobre as duas combinações que importam:
-- login (interativo ou não, inclui `-lc`, o caso real) → `~/.profile`
-- não-login mas interativo (ex.: `bash -ic`) → `~/.bashrc`
+Root cause: Ubuntu's default `~/.bashrc` has a guard at the top (`if not interactive, exit`) that discards any line appended at the end of the file when the shell isn't interactive — exactly the `-lc` case. bash uses different files depending on the login/interactive combination, and no single file covers the two combinations that matter:
+- login (interactive or not, includes `-lc`, the real case) → `~/.profile`
+- non-login but interactive (e.g. `bash -ic`) → `~/.bashrc`
 
-Duas tentativas intermediárias descartadas com evidência, não só por teoria:
-1. **`/etc/environment`** (nível PAM, deveria valer pra tudo) — editado com sudo, mas confirmado que `wsl -e bash -lc` (modo `-e`/exec direto) **nem chega a consultar esse arquivo**: o `$PATH` observado não tinha nenhum traço do valor lá, mesmo depois de `wsl --shutdown` completo pra forçar releitura. Revertido.
-2. Simplesmente mover a linha pro `.profile` sozinho — resolveu o caso real (`-lc`) mas **quebrou** o caso `bash -ic` (não-login+interativo, que não lê `.profile` nunca, é regra do próprio bash).
+Two intermediate attempts discarded with evidence, not just theory:
+1. **`/etc/environment`** (PAM level, should apply to everything) — edited with sudo, but confirmed that `wsl -e bash -lc` (`-e`/direct-exec mode) **doesn't even consult this file**: the observed `$PATH` had no trace of the value in it, even after a full `wsl --shutdown` to force a re-read. Reverted.
+2. Simply moving the line to `.profile` alone — fixed the real case (`-lc`) but **broke** the `bash -ic` case (non-login+interactive, which never reads `.profile` — that's bash's own rule).
 
-**Fix final, validado nas três combinações que existem de verdade** (`wsl -e bash -lc`, `wsl -e bash -ic`, e confirmado que só falta o caso teórico `bash -c` sem `-l` nem `-i`, que nenhuma dotfile cobre por design do bash — não é o padrão observado de invocação real, então não perseguido):
-- `~/.profile`: linha simples no fim (convenção sem guard).
-- `~/.bashrc`: linha no **topo do arquivo**, antes do guard de interatividade — não no fim.
+**Final fix, validated across the three combinations that genuinely exist** (`wsl -e bash -lc`, `wsl -e bash -ic`, and confirmed that only the theoretical `bash -c` with neither `-l` nor `-i` is left uncovered, which no dotfile handles by bash's own design — not the observed real invocation pattern, so not pursued):
+- `~/.profile`: a plain line at the end (the convention, no guard).
+- `~/.bashrc`: a line at the **top of the file**, before the interactivity guard — not at the end.
 
-`install.sh` reescrito pra fazer as duas coisas desde a primeira instalação (com a mesma lógica espelhada pra zsh via `~/.zprofile`/`~/.zshrc`, não testada ao vivo nesta sessão por falta de shell zsh disponível, mas mesma regra do bash se aplica).
+`install.sh` rewritten to do both from the very first install (with the same logic mirrored for zsh via `~/.zprofile`/`~/.zshrc`, not tested live this session for lack of an available zsh shell, but the same bash rule applies).
 
 ```
 $ wsl -e bash -lc 'git status | cat'
@@ -160,34 +160,34 @@ $ wsl -e bash -ic 'git status | cat'
 clean — nothing to commit
 ```
 
-**Lição maior que o bug em si**: "ativar o shim" não é uma checkbox binária — depende inteiramente de COMO a ferramenta que a gente quer interceptar (aqui, o próprio Claude Code) invoca shell de verdade. Vale checar isso explicitamente em qualquer plataforma nova antes de declarar M8 pronto lá também.
+**The bigger lesson, beyond the bug itself**: "activating the shim" isn't a binary checkbox — it depends entirely on HOW the tool we want to intercept (here, Claude Code itself) actually invokes a shell. Worth checking this explicitly on any new platform before declaring M8 ready there too.
 
-### Reestruturação de pastas: `core/` + `bornes/{comandos,mcp,prosa}/` (2026-07-26)
+### Folder restructuring: `core/` + `bornes/{comandos,mcp,prosa}/` (2026-07-26)
 
-`src/` finalmente reflete o diagrama de arquitetura que o `specs.md` §3 já descrevia desde o início do projeto (módulos autocontidos numa pasta `bornes/`) — até aqui o código real estava mais achatado (`src/filters/`, `src/camada_b/`, `src/mcp_proxy/`, `src/prosa/`, `src/store/`, `src/shim.rs` todos soltos direto em `src/`).
+`src/` finally reflects the architecture diagram `specs.md` §3 had described since the start of the project (self-contained modules in a `bornes/` folder) — up to this point the real code was flatter (`src/filters/`, `src/camada_b/`, `src/mcp_proxy/`, `src/prosa/`, `src/store/`, `src/shim.rs` all sitting loose directly under `src/`).
 
 ```
 src/
-  main.rs              — ponto de entrada fino: só decide meta-comando (core::meta) vs shim (bornes::comandos)
+  main.rs              — thin entry point: only decides meta-command (core::meta) vs shim (bornes::comandos)
   core/
-    store.rs            — armazém endereçado por hash (specs §8), cross-cutting: hoje só bornes/comandos usa, mas é infra pros 3
-    meta.rs              — roteamento de `elagix show/store/compress/mcp`
+    store.rs            — content-addressed store (specs §8), cross-cutting: today only bornes/comandos uses it, but it's infra for all 3
+    meta.rs              — routes `elagix show/store/compress/mcp`
   bornes/
-    comandos/            — o "tipo RTK": shim de $PATH + Camada A + Camada B
+    comandos/            — the "RTK-like" one: $PATH shim + Layer A + Layer B
       shim.rs
-      filters/           — Camada A (git_status, git_log, git_diff, pytest, cargo_test)
-      camada_b/          — motor de pipeline declarativo (engine.rs) + tipos (mod.rs)
-      filters-toml/       — dados das regras Camada B (movido de filters-toml/ na raiz)
-      mod.rs              — orquestração (era o corpo grande do antigo main.rs)
-    mcp/                  — compressor de MCP (era mcp_proxy/)
-    prosa/                — resumo TF-IDF
+      filters/           — Layer A (git_status, git_log, git_diff, pytest, cargo_test)
+      camada_b/          — declarative pipeline engine (engine.rs) + types (mod.rs)
+      filters-toml/       — Layer B rule data (moved from filters-toml/ at the root)
+      mod.rs              — orchestration (used to be the big body of the old main.rs)
+    mcp/                  — MCP compressor (used to be mcp_proxy/)
+    prosa/                — TF-IDF summarization
 ```
 
-Só 5 arquivos precisaram de mudança de conteúdo de verdade (o resto foi mover sem tocar): `main.rs` (reescrito, ficou fino), `camada_b/mod.rs` (`include_str!` de `../../filters-toml/` pra `../filters-toml/`, já que os dados moveram junto), `camada_b/engine.rs` (path do `Step` no teste), `filters/git_log.rs` e `filters/git_diff.rs` (path de `bornes::prosa::summarize`). `cargo build --release` limpo de primeira, 38 testes passando sem nenhuma mudança de asserção, e validado ao vivo de novo contra o `bastion-agent` — mesmo comportamento de antes da reestruturação (`git status`/`git log` filtrados igual, cache/disclosure/dedup intactos).
+Only 5 files needed a real content change (everything else was moved untouched): `main.rs` (rewritten, now thin), `camada_b/mod.rs` (`include_str!` from `../../filters-toml/` to `../filters-toml/`, since the data moved along with it), `camada_b/engine.rs` (the `Step` path in the test), `filters/git_log.rs` and `filters/git_diff.rs` (the `bornes::prosa::summarize` path). `cargo build --release` was clean on the first try, 38 tests passing with no assertion changes, and validated live again against `bastion-agent` — the same behavior as before the restructuring (`git status`/`git log` filtered the same way, cache/disclosure/dedup intact).
 
-## Próximos passos
-- **Todos os 8 milestones planejados (M0-M8) estão feitos, a ativação foi validada no padrão de invocação real do Claude Code, e a estrutura de pastas reflete a arquitetura documentada desde o início.**
-- Ver `PENDENCIAS.md` (novo, 2026-07-26) pra lista completa e consolidada de dívida técnica e melhorias conhecidas — antes espalhada em notas soltas neste arquivo e no `specs.md` §13.
-- Pendências reais, não bloqueantes: (1) validar `install.ps1` numa máquina Windows com toolchain nativa de verdade; (2) build/teste real em macOS (precisa de Mac físico ou CI); (3) o repositório do projeto ainda não tem nenhum commit (`git status` mostra "No commits yet") — vale organizar isso antes de ir mais longe; (4) observar o uso real por alguns dias e ver se algum filtro precisa de ajuste com dado de produção de verdade, não só fixture; (5) o caso `zsh` do `install.sh` não foi testado ao vivo (só o `bash`, que é o shell real desta máquina).
-- Testar o shim em uso real (adicionar `~/.elagix/shims` no `$PATH` persistente, não só por chamada) e observar por alguns dias antes de avançar
-- `bornes/mcp` também precisa de um teste ao vivo contra um servidor MCP real (não só o fake de teste) antes de considerar M5/M6 prontos pra uso de verdade — validado só o mecanismo, não a compatibilidade com servidores de produção
+## Next steps
+- **All 8 planned milestones (M0-M8) are done, activation has been validated against Claude Code's real invocation pattern, and the folder structure reflects the architecture documented from the start.**
+- See `KNOWN_ISSUES.md` (new, 2026-07-26) for the full, consolidated list of technical debt and known improvements — previously scattered across loose notes in this file and in `specs.md` §13.
+- Real, non-blocking pending items: (1) validate `install.ps1` on a Windows machine with a genuine native toolchain; (2) real build/test on macOS (needs a physical Mac or CI); (3) the project's own repository now has commits, published under `mkmuniz/elagix-tk`, after the M8 rename to Elagix; (4) watch real usage for a few days and see if any filter needs adjusting based on real production data, not just fixtures; (5) `install.sh`'s zsh path hasn't been tested live (only bash, this machine's real shell).
+- Test the shim under real use (add `~/.elagix/shims` to the persistent `$PATH`, not just per-call) and watch it for a few days before moving forward
+- `bornes/mcp` also needs a live test against a real MCP server (not just the test fake) before M5/M6 can be considered ready for real use — only the mechanism has been validated, not compatibility with production servers

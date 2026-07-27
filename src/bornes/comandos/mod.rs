@@ -5,34 +5,34 @@ mod shim;
 use crate::core::store;
 use std::process::ExitCode;
 
-/// Tamanho mínimo pra dedup entrar em jogo (specs §8.3) — abaixo disso, a
-/// linha de referência custaria mais do que economiza.
+/// Minimum size for dedup to kick in (specs §8.3) — below this, the
+/// reference line would cost more than it saves.
 const DEDUP_MIN_BYTES: usize = 200;
 
-/// `bornes/comandos` (specs.md §5) — shim de `$PATH`: intercepta a saída de
-/// comando de shell (`git`, `docker`, `cargo`, `pytest`...) invocado como
-/// `invoked_name` (o `argv[0]` do processo, resolvido pelo `main.rs`).
+/// `bornes/comandos` (specs.md §5) — `$PATH` shim: intercepts the output of
+/// a shell command (`git`, `docker`, `cargo`, `pytest`...) invoked as
+/// `invoked_name` (the process's `argv[0]`, resolved by `main.rs`).
 pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     let Some(real_bin) = shim::resolve_real_binary(invoked_name) else {
-        eprintln!("elagix: não achei o binário real de '{invoked_name}' no PATH");
+        eprintln!("elagix: couldn't find the real binary for '{invoked_name}' in PATH");
         return ExitCode::FAILURE;
     };
 
-    // Passthrough total pra uso humano interativo — nunca filtra quando é um TTY
-    // (specs.md §5.1). No Unix isso substitui o processo atual (exec de verdade).
+    // Total passthrough for interactive human use — never filters when it's a
+    // TTY (specs.md §5.1). On Unix this replaces the current process (a real exec).
     if shim::stdout_is_tty() {
         if let Err(e) = shim::exec_passthrough(&real_bin, rest_args) {
-            eprintln!("elagix: falha ao executar {invoked_name}: {e}");
+            eprintln!("elagix: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;
         }
-        return ExitCode::SUCCESS; // inatingível no Unix (exec substitui o processo)
+        return ExitCode::SUCCESS; // unreachable on Unix (exec replaces the process)
     }
 
-    // Cache (specs.md §8.2, escopo v1 decidido em §13): só o único caso
-    // comprovadamente imutável — `git show <sha explícito>`. `HEAD`/branch
-    // ficam de fora porque podem apontar pra outro commit amanhã. A chave
-    // carrega uma versão do formato ("v1") pra nunca servir saída obsoleta se
-    // o filtro de `git_diff` mudar no futuro.
+    // Cache (specs.md §8.2, v1 scope decided in §13): only the one case
+    // provably immutable — `git show <explicit sha>`. `HEAD`/branch are
+    // excluded because they can point to a different commit tomorrow. The
+    // key carries a format version ("v1") so it never serves stale output if
+    // the `git_diff` filter changes in the future.
     let git_show_cache_key = if invoked_name == "git"
         && rest_args.len() == 2
         && rest_args[0] == "show"
@@ -42,22 +42,22 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     } else {
         None
     };
-    // (chegar até aqui já implica caminho não-interativo — o branch de TTY
-    // acima sempre retorna/substitui o processo antes de chegar nesta linha.)
-    if let Some(key) = &git_show_cache_key {
-        if let Some(cached) = store::get_keyed(key) {
-            print!("{cached}");
-            if !cached.ends_with('\n') {
-                println!();
-            }
-            return ExitCode::SUCCESS;
+    // (getting here already implies the non-interactive path — the TTY
+    // branch above always returns/replaces the process before this line.)
+    if let Some(key) = &git_show_cache_key
+        && let Some(cached) = store::get_keyed(key)
+    {
+        print!("{cached}");
+        if !cached.ends_with('\n') {
+            println!();
         }
+        return ExitCode::SUCCESS;
     }
 
-    // Caminho não-interativo (pipe) — aqui entra a filtragem.
+    // Non-interactive path (pipe) — this is where filtering kicks in.
     let (run_args, subcommand): (Vec<String>, Option<&str>) = match invoked_name {
-        "git" if rest_args.first().map(String::as_str) == Some("status")
-            && rest_args.len() == 1 =>
+        "git"
+            if rest_args.first().map(String::as_str) == Some("status") && rest_args.len() == 1 =>
         {
             (
                 vec!["status".into(), "--porcelain=v1".into(), "--branch".into()],
@@ -68,7 +68,10 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
             (rest_args.to_vec(), Some("git-log"))
         }
         "git"
-            if matches!(rest_args.first().map(String::as_str), Some("diff") | Some("show")) =>
+            if matches!(
+                rest_args.first().map(String::as_str),
+                Some("diff") | Some("show")
+            ) =>
         {
             (rest_args.to_vec(), Some("git-diff"))
         }
@@ -82,15 +85,15 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     let captured = match shim::run_captured(&real_bin, &run_args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("elagix: falha ao executar {invoked_name}: {e}");
+            eprintln!("elagix: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;
         }
     };
 
     let raw = String::from_utf8_lossy(&captured.stdout);
 
-    // Camada B (specs.md §5.2/§5.3): só entra em jogo quando nenhum parser
-    // dedicado da Camada A bateu — é o fallback declarativo pra cauda longa.
+    // Layer B (specs.md §5.2/§5.3): only kicks in when no dedicated Layer A
+    // parser matched — it's the declarative fallback for the long tail.
     let camada_b_filters = camada_b::load_all();
     let camada_b_match = if subcommand.is_none() {
         camada_b::find_match(&camada_b_filters, invoked_name, rest_args)
@@ -98,15 +101,15 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         None
     };
 
-    // Regra de negócio 2 (specs.md §4): nenhum atalho de sucesso se o processo não
-    // terminou com sucesso. Isso é responsabilidade de CADA filtro reportar a
-    // verdade (nunca fabricar "sucesso"), não de desligar a filtragem inteira em
-    // qualquer saída não-zero — aliás o caso de maior valor do pytest (falha na
-    // coleta de teste) só existe justamente quando o exit code NÃO é zero. Achado
-    // ao vivo testando nesta sessão (2026-07-26): a versão anterior desligava o
-    // filtro exatamente no caso que mais queríamos demonstrar. A Camada B aplica a
-    // mesma regra internamente pros seus próprios atalhos (`match_output`/
-    // `on_empty`) — ver camada_b/engine.rs.
+    // Business rule 2 (specs.md §4): no success shortcut if the process did
+    // not finish successfully. This is each filter's own responsibility (never
+    // fabricate "success"), not something achieved by turning off filtering
+    // entirely on any non-zero exit — in fact pytest's highest-value case
+    // (collection failure) only exists precisely when the exit code is NOT
+    // zero. Found live while testing this session (2026-07-26): the earlier
+    // version turned off the filter exactly in the case we most wanted to
+    // demonstrate. Layer B enforces the same rule internally for its own
+    // shortcuts (`match_output`/`on_empty`) — see camada_b/engine.rs.
     let filtered = match subcommand {
         Some("git-status") => Some(filters::git_status::filter(&raw)),
         Some("git-log") => Some(filters::git_log::filter(&raw)),
@@ -116,46 +119,46 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         _ => camada_b_match.map(|f| camada_b::apply(&f.pipeline, &raw, captured.exit_code)),
     };
 
-    // Disclosure progressivo (specs.md §8.1): quando o filtro sinaliza que
-    // conteúdo de verdade foi descartado (não só reformatado), guarda o bruto
-    // no armazém e anexa uma dica recuperável. Testado ANTES da regra 6 de
-    // propósito: se a dica não couber no orçamento, a regra 6 cai pro bruto
-    // completo — que já É a informação total, então nada se perde de qualquer
-    // forma.
+    // Progressive disclosure (specs.md §8.1): when the filter signals that
+    // real content was dropped (not just reformatted), store the raw output
+    // and append a recoverable hint. Checked BEFORE rule 6 on purpose: if the
+    // hint doesn't fit the budget, rule 6 falls back to the full raw output —
+    // which already IS the complete information, so nothing is lost either way.
     let filtered = filtered.map(|f| {
         if f.contains("lines omitted") || f.contains("more changed lines") {
             let hash = store::put(&raw);
-            format!("{f}\n(bruto completo: elagix show {hash})")
+            format!("{f}\n(full output: elagix show {hash})")
         } else {
             f
         }
     });
 
-    // Regra de negócio 6: saída filtrada nunca pode ser maior que a original.
+    // Business rule 6: filtered output can never be larger than the original.
     let mut output = match filtered {
         Some(f) if f.len() < raw.len() => f,
         _ => raw.into_owned(),
     };
 
-    // Cache (§8.2): só grava depois de confirmar sucesso — nunca cacheia
-    // processo que falhou/foi interrompido (regra de negócio 2/3).
-    if let Some(key) = &git_show_cache_key {
-        if captured.exit_code == 0 {
-            store::put_keyed(key, &output);
-        }
+    // Cache (§8.2): only writes after confirming success — never caches a
+    // process that failed or was interrupted (business rule 2/3).
+    if let Some(key) = &git_show_cache_key
+        && captured.exit_code == 0
+    {
+        store::put_keyed(key, &output);
     }
 
-    // Deduplicação (§8.3) — a única das duas técnicas de armazém que reduz
-    // token de fato. Aproxima "mesma sessão" por janela de tempo (limitação
-    // documentada em specs §8.3: não há id de sessão estável disponível aqui).
+    // Deduplication (§8.3) — the only one of the two store techniques that
+    // actually cuts tokens. Approximates "same session" with a time window
+    // (documented limitation in specs §8.3: there's no stable session id
+    // available here).
     if output.len() >= DEDUP_MIN_BYTES {
-        let hash = store::put(&output); // garante recuperável via `elagix show`
+        let hash = store::put(&output); // ensures it's recoverable via `elagix show`
         let window: u64 = std::env::var("ELAGIX_DEDUP_WINDOW_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(1800);
         if let store::Dedup::SeenRecently = store::check_and_record_dedup(&output, window) {
-            let msg = format!("(igual à saída anterior — elagix show {hash} pra ver de novo)");
+            let msg = format!("(same as previous output — elagix show {hash} to view it again)");
             if msg.len() < output.len() {
                 output = msg;
             }

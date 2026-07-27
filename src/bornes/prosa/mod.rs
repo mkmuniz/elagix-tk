@@ -1,19 +1,20 @@
 use std::collections::{HashMap, HashSet};
 
-/// `bornes/prosa` (specs.md §7) — resumo extrativo por TF-IDF. Não tem
-/// mecanismo de interceptação próprio (specs §7.1): é função pura, chamada
-/// por `bornes/comandos` (corpo de mensagem de commit em `git log`/`git
-/// show`) e disponível como utilitário standalone (`elagix compress`).
-/// Decisão explícita de specs §7.1: só a estratégia extrativa — pontua
-/// frases por TF-IDF e mantém as de maior pontuação, sem modelo treinado,
-/// sem embedding.
+/// `bornes/prosa` (specs.md §7) — TF-IDF extractive summarization. Has no
+/// interception mechanism of its own (specs §7.1): it's a pure function,
+/// called by `bornes/comandos` (commit message body in `git log`/`git
+/// show`) and available as a standalone utility (`elagix compress`).
+/// Explicit decision from specs §7.1: extractive strategy only — scores
+/// sentences by TF-IDF and keeps the highest-scoring ones, no trained
+/// model, no embeddings.
 ///
-/// Resume `text` extraindo até `max_sentences` frases de maior pontuação
-/// TF-IDF, devolvidas na ORDEM ORIGINAL em que aparecem (legibilidade —
-/// um resumo fora de ordem cronológica confundiria mais do que ajudaria).
-/// Fail-open (regra de negócio 3): texto vazio ou já dentro do teto de
-/// frases volta sem modificação — resumir texto que já é curto não
-/// economiza nada e arrisca reformatar à toa.
+/// Summarizes `text` by extracting up to `max_sentences` of the
+/// highest-scoring sentences by TF-IDF, returned in their ORIGINAL order of
+/// appearance (readability — a summary out of chronological order would
+/// confuse more than it would help). Fail-open (business rule 3): empty
+/// text or text already within the sentence cap is returned unmodified —
+/// summarizing text that's already short saves nothing and risks
+/// reformatting for no reason.
 pub fn summarize(text: &str, max_sentences: usize) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() || max_sentences == 0 {
@@ -35,7 +36,7 @@ pub fn summarize(text: &str, max_sentences: usize) -> String {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     let mut top: Vec<usize> = ranked.into_iter().take(max_sentences).collect();
-    top.sort_unstable(); // ordem original, não ordem de pontuação
+    top.sort_unstable(); // original order, not score order
 
     let out = top
         .iter()
@@ -43,9 +44,9 @@ pub fn summarize(text: &str, max_sentences: usize) -> String {
         .collect::<Vec<_>>()
         .join(" ");
 
-    // Regra de negócio 6: garantidamente menor por construção (subconjunto
-    // de frases), mas a checagem explícita custa nada e segue o mesmo
-    // padrão defensivo do resto do projeto (camada_b, mcp_proxy).
+    // Business rule 6: guaranteed to be smaller by construction (a subset of
+    // sentences), but the explicit check costs nothing and follows the same
+    // defensive pattern as the rest of the project (camada_b, mcp proxy).
     if out.len() < trimmed.len() {
         out
     } else {
@@ -53,25 +54,28 @@ pub fn summarize(text: &str, max_sentences: usize) -> String {
     }
 }
 
-/// Teto de frases sugerido quando quem chama não sabe de antemão quanto
-/// cortar (usado por `elagix compress`, utilitário standalone) — mantém
-/// aproximadamente 1/3 das frases originais, no mínimo 1.
+/// Suggested sentence cap for when the caller doesn't know ahead of time how
+/// much to cut (used by `elagix compress`, the standalone utility) — keeps
+/// roughly 1/3 of the original sentences, at least 1.
 pub fn suggested_sentence_budget(text: &str) -> usize {
     let n = split_sentences(text.trim()).len();
     (n / 3).max(1)
 }
 
-/// Divisor de frases simples: corta em `.`/`!`/`?` seguido de espaço ou fim
-/// de texto. Não trata abreviações ("Sr.", "v1.2") como caso especial —
-/// limitação conhecida e aceitável pro caso de uso real (corpo de commit,
-/// prompt, prosa curta — não texto jurídico/acadêmico denso de abreviações).
+/// Simple sentence splitter: cuts on `.`/`!`/`?` followed by whitespace or
+/// end of text. Doesn't special-case abbreviations ("Mr.", "v1.2") — a known
+/// and acceptable limitation for the real use case (commit body, prompt,
+/// short prose — not dense legal/academic text full of abbreviations).
 fn split_sentences(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
     let bytes = text.as_bytes();
     for (i, b) in bytes.iter().enumerate() {
         if matches!(b, b'.' | b'!' | b'?') {
-            let boundary = bytes.get(i + 1).map(|c| c.is_ascii_whitespace()).unwrap_or(true);
+            let boundary = bytes
+                .get(i + 1)
+                .map(|c| c.is_ascii_whitespace())
+                .unwrap_or(true);
             if boundary {
                 let s = text[start..=i].trim();
                 if !s.is_empty() {
@@ -97,10 +101,10 @@ fn tokenize(sentence: &str) -> Vec<String> {
         .collect()
 }
 
-/// TF-IDF clássico: `tf` = frequência normalizada na própria frase, `idf` =
-/// log(N frases / frases que contêm a palavra) + 1 (suavizado, pra palavra
-/// presente em toda frase não zerar o score inteiro). Pontuação da frase =
-/// soma do tf-idf de cada palavra única nela.
+/// Classic TF-IDF: `tf` = frequency normalized within the sentence itself,
+/// `idf` = log(N sentences / sentences containing the word) + 1 (smoothed,
+/// so a word present in every sentence doesn't zero out the whole score).
+/// A sentence's score = the sum of tf-idf for each unique word in it.
 fn tfidf_scores(tokenized: &[Vec<String>]) -> Vec<f64> {
     let n = tokenized.len() as f64;
     let mut df: HashMap<&str, usize> = HashMap::new();
@@ -133,18 +137,19 @@ fn tfidf_scores(tokenized: &[Vec<String>]) -> Vec<f64> {
         .collect()
 }
 
-/// Lista curta de stopwords inglês+português — corpo de commit neste
-/// projeto mistura os dois idiomas (visto nos fixtures reais de M2/M4).
-/// Não pretende ser exaustiva, só remover o ruído de maior frequência que
-/// distorceria o TF-IDF (artigos/preposições aparecem em toda frase e não
-/// carregam sinal nenhum sobre qual frase é mais importante).
+/// Short English+Portuguese stopword list — this data table supports
+/// summarizing text in either language (a user's own commit bodies may be
+/// in Portuguese, as seen in this project's own real fixtures from M2/M4).
+/// Not meant to be exhaustive, just enough to remove the highest-frequency
+/// noise that would distort TF-IDF (articles/prepositions show up in every
+/// sentence and carry no signal about which sentence matters most).
 const STOPWORDS: &[&str] = &[
-    "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "is", "are", "was", "were",
-    "be", "this", "that", "it", "with", "as", "at", "by", "from", "but", "not", "no", "so",
-    "we", "our", "has", "have", "had", "will", "would", "can", "could", "if", "than", "then",
-    "o", "os", "as", "um", "uma", "de", "da", "do", "das", "dos", "e", "ou", "que", "em", "no",
-    "na", "nos", "nas", "para", "por", "com", "como", "se", "ao", "aos", "é", "foi", "ser",
-    "não", "mais", "já", "também", "isso", "esse", "essa", "só", "sem", "pra",
+    "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "is", "are", "was", "were", "be",
+    "this", "that", "it", "with", "as", "at", "by", "from", "but", "not", "no", "so", "we", "our",
+    "has", "have", "had", "will", "would", "can", "could", "if", "than", "then", "o", "os", "as",
+    "um", "uma", "de", "da", "do", "das", "dos", "e", "ou", "que", "em", "no", "na", "nos", "nas",
+    "para", "por", "com", "como", "se", "ao", "aos", "é", "foi", "ser", "não", "mais", "já",
+    "também", "isso", "esse", "essa", "só", "sem", "pra",
 ];
 
 #[cfg(test)]
@@ -170,7 +175,7 @@ mod tests {
                      Ok. Fixed now.";
         let out = summarize(text, 1);
         assert!(out.len() < text.len());
-        assert!(out.contains("cargo fmt")); // frase de maior conteúdo/sinal, não "Ok."
+        assert!(out.contains("cargo fmt")); // highest-content/signal sentence, not "Ok."
     }
 
     #[test]
@@ -183,7 +188,7 @@ mod tests {
         let pos_committee = out.find("committee router");
         let pos_persona = out.find("persona registry");
         assert!(pos_committee.is_some() && pos_persona.is_some());
-        assert!(pos_committee < pos_persona); // ordem original preservada, não ordem de score
+        assert!(pos_committee < pos_persona); // original order preserved, not score order
     }
 
     #[test]

@@ -1,28 +1,35 @@
 use super::Step;
 use regex::Regex;
 
-/// Aplica o pipeline declarativo (specs.md §5.3) em ordem. `exit_code` é
-/// passado explicitamente porque `MatchOutput` e `OnEmpty` são atalhos de
-/// "sucesso confirmado" — regra de negócio 2/3 (specs.md §4, achado de
-/// epistemic failure, seção 11): nenhum dos dois pode disparar se o processo
-/// não saiu com 0, senão um erro real vira uma frase de sucesso genérica.
+/// Applies the declarative pipeline (specs.md §5.3) in order. `exit_code` is
+/// passed explicitly because `MatchOutput` and `OnEmpty` are "confirmed
+/// success" shortcuts — business rule 2/3 (specs.md §4, epistemic failure
+/// finding, section 11): neither can fire if the process didn't exit with
+/// 0, or a real error would turn into a generic success message.
 pub fn apply(steps: &[Step], raw: &str, exit_code: i32) -> String {
     let mut working = raw.to_string();
 
     for step in steps {
         match step {
             Step::StripAnsi => working = strip_ansi(&working),
-            Step::Replace { pattern, replacement } => {
-                let Ok(re) = Regex::new(pattern) else { continue }; // fail-open (regra 3)
+            Step::Replace {
+                pattern,
+                replacement,
+            } => {
+                let Ok(re) = Regex::new(pattern) else {
+                    continue;
+                }; // fail-open (rule 3)
                 working = re.replace_all(&working, replacement.as_str()).into_owned();
             }
             Step::MatchOutput { pattern, message } => {
                 if exit_code != 0 {
                     continue;
                 }
-                let Ok(re) = Regex::new(pattern) else { continue };
+                let Ok(re) = Regex::new(pattern) else {
+                    continue;
+                };
                 if re.is_match(&working) {
-                    return message.clone(); // curto-circuito: specs.md §5.4a
+                    return message.clone(); // short-circuit: specs.md §5.4a
                 }
             }
             Step::KeepLinesMatching { patterns } => {
@@ -68,11 +75,7 @@ pub fn apply(steps: &[Step], raw: &str, exit_code: i32) -> String {
                 let total = working.lines().count();
                 if total > *limit {
                     let kept: Vec<&str> = working.lines().take(*limit).collect();
-                    working = format!(
-                        "{}\n[+{} lines omitted]",
-                        kept.join("\n"),
-                        total - limit
-                    );
+                    working = format!("{}\n[+{} lines omitted]", kept.join("\n"), total - limit);
                 }
             }
             Step::OnEmpty { message } => {
@@ -87,9 +90,9 @@ pub fn apply(steps: &[Step], raw: &str, exit_code: i32) -> String {
 }
 
 fn strip_ansi(s: &str) -> String {
-    // Regex compilada uma vez por chamada (v1) — commands passam por aqui uma
-    // única vez por invocação, custo desprezível frente ao processo filho.
-    let re = Regex::new("\x1b\\[[0-9;]*[a-zA-Z]").expect("regex ANSI estática válida");
+    // Regex compiled once per call (v1) — commands only pass through here
+    // once per invocation, negligible cost next to the child process.
+    let re = Regex::new("\x1b\\[[0-9;]*[a-zA-Z]").expect("static ANSI regex is valid");
     re.replace_all(s, "").into_owned()
 }
 
@@ -109,11 +112,17 @@ mod tests {
     fn match_output_short_circuits_only_on_success() {
         let steps = vec![Step::MatchOutput {
             pattern: "up to date".into(),
-            message: "docker: nada a puxar".into(),
+            message: "docker: nothing to pull".into(),
         }];
-        assert_eq!(apply(&steps, "image is up to date\n", 0), "docker: nada a puxar");
-        // exit_code != 0 -> não pode fabricar sucesso (regra 2/3)
-        assert_eq!(apply(&steps, "image is up to date\n", 1), "image is up to date\n");
+        assert_eq!(
+            apply(&steps, "image is up to date\n", 0),
+            "docker: nothing to pull"
+        );
+        // exit_code != 0 -> can't fabricate success (rule 2/3)
+        assert_eq!(
+            apply(&steps, "image is up to date\n", 1),
+            "image is up to date\n"
+        );
     }
 
     #[test]
@@ -139,10 +148,10 @@ mod tests {
                 patterns: vec![".*".into()],
             },
             Step::OnEmpty {
-                message: "nada mudou".into(),
+                message: "nothing changed".into(),
             },
         ];
-        assert_eq!(apply(&steps, "x\ny\n", 0), "nada mudou");
+        assert_eq!(apply(&steps, "x\ny\n", 0), "nothing changed");
         assert_eq!(apply(&steps, "x\ny\n", 1), "");
     }
 

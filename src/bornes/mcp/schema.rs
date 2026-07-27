@@ -1,19 +1,18 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// Lazy-loading de schema (specs.md §6.1). `tools/list` normalmente devolve
-/// nome + descrição completa (às vezes um parágrafo inteiro) + `inputSchema`
-/// completo pra CADA ferramenta — isso é pago pra TODA sessão, mesmo que o
-/// modelo só use uma ferramenta ou nenhuma. Aqui devolvemos wrappers mínimos
-/// e guardamos o original em `schemas` pra `get_tool_schema` buscar sob
-/// demanda (mod.rs intercepta essa chamada localmente, nunca chega no
-/// servidor real).
+/// Lazy schema loading (specs.md §6.1). `tools/list` normally returns name +
+/// full description (sometimes a whole paragraph) + full `inputSchema` for
+/// EVERY tool — that's paid for on EVERY session, even if the model uses
+/// just one tool or none at all. Here we return minimal wrappers and stash
+/// the original in `schemas` for `get_tool_schema` to fetch on demand
+/// (mod.rs intercepts that call locally, it never reaches the real server).
 const MAX_DESC_CHARS: usize = 140;
 
 pub fn transform_tools_list(msg: &Value, schemas: &Mutex<HashMap<String, Value>>) -> Value {
     let Some(tools) = msg.pointer("/result/tools").and_then(Value::as_array) else {
-        return msg.clone(); // fail-open (regra 3): formato inesperado, repassa como veio
+        return msg.clone(); // fail-open (rule 3): unexpected format, pass through as-is
     };
 
     let mut cache = schemas.lock().unwrap();
@@ -30,16 +29,16 @@ pub fn transform_tools_list(msg: &Value, schemas: &Mutex<HashMap<String, Value>>
     let mut out = msg.clone();
     out["result"]["tools"] = Value::Array(compact);
 
-    // Regra de negócio 6, aplicada à mensagem JSON-RPC inteira: com só uma
-    // ferramenta minúscula, o wrapper + a ferramenta sintética podem custar
-    // mais do que o original — nesse caso devolve sem transformar.
-    let orig_len = serde_json::to_string(msg).map(|s| s.len()).unwrap_or(usize::MAX);
-    let new_len = serde_json::to_string(&out).map(|s| s.len()).unwrap_or(usize::MAX);
-    if new_len < orig_len {
-        out
-    } else {
-        msg.clone()
-    }
+    // Business rule 6, applied to the whole JSON-RPC message: with just one
+    // tiny tool, the wrapper + the synthetic tool can cost more than the
+    // original — in that case, return it untransformed.
+    let orig_len = serde_json::to_string(msg)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    let new_len = serde_json::to_string(&out)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    if new_len < orig_len { out } else { msg.clone() }
 }
 
 fn compress_tool_for_listing(tool: &Value) -> Value {
@@ -55,7 +54,7 @@ fn compress_tool_for_listing(tool: &Value) -> Value {
         .unwrap_or_default();
     json!({
         "name": name,
-        "description": format!("{short} [schema completo: get_tool_schema(\"{name}\")]"),
+        "description": format!("{short} [full schema: get_tool_schema(\"{name}\")]"),
         "inputSchema": {"type": "object"},
     })
 }
@@ -64,7 +63,10 @@ fn first_sentence(desc: &str) -> String {
     let cut = desc.find(". ").map(|i| i + 1).unwrap_or(desc.len());
     let sentence = desc[..cut.min(desc.len())].trim();
     if sentence.chars().count() > MAX_DESC_CHARS {
-        format!("{}…", sentence.chars().take(MAX_DESC_CHARS).collect::<String>())
+        format!(
+            "{}…",
+            sentence.chars().take(MAX_DESC_CHARS).collect::<String>()
+        )
     } else {
         sentence.to_string()
     }
@@ -73,7 +75,7 @@ fn first_sentence(desc: &str) -> String {
 fn synthetic_get_tool_schema_tool() -> Value {
     json!({
         "name": "get_tool_schema",
-        "description": "Devolve o schema completo (inputSchema + descrição integral) de uma ferramenta pelo nome, antes de chamá-la de verdade.",
+        "description": "Returns the full schema (inputSchema + complete description) for a tool by name, before actually calling it.",
         "inputSchema": {
             "type": "object",
             "properties": { "tool_name": {"type": "string"} },
@@ -86,11 +88,11 @@ fn synthetic_get_tool_schema_tool() -> Value {
 mod tests {
     use super::*;
 
-    /// Ferramenta com descrição/schema verbosos, do tamanho comum em
-    /// servidores MCP reais (specs §6.1) — um catálogo com várias dessas é
-    /// exatamente o caso que motiva o lazy-loading (uma única ferramenta
-    /// minúscula não amortiza o custo fixo da ferramenta sintética
-    /// `get_tool_schema`, ver `tiny_single_tool_falls_back_to_original`).
+    /// A tool with a verbose description/schema, the size commonly seen in
+    /// real MCP servers (specs §6.1) — a catalog with several of these is
+    /// exactly the case that motivates lazy loading (a single tiny tool
+    /// doesn't amortize the fixed cost of the synthetic `get_tool_schema`
+    /// tool, see `tiny_single_tool_falls_back_to_original`).
     fn verbose_tool(name: &str) -> Value {
         json!({
             "name": name,
@@ -124,7 +126,7 @@ mod tests {
         let out = transform_tools_list(&msg, &schemas);
         let tools = out["result"]["tools"].as_array().unwrap();
 
-        assert_eq!(tools.len(), 3); // 2 ferramentas reais (comprimidas) + get_tool_schema sintética
+        assert_eq!(tools.len(), 3); // 2 real tools (compressed) + synthetic get_tool_schema
         assert_eq!(tools[0]["name"], "search_docs");
         assert_eq!(tools[0]["inputSchema"], json!({"type": "object"}));
         let original_desc_len = tools_in[0]["description"].as_str().unwrap().len();
@@ -133,7 +135,12 @@ mod tests {
 
         let cached = schemas.lock().unwrap();
         let full = cached.get("search_docs").unwrap();
-        assert!(full["description"].as_str().unwrap().contains("highlighted excerpts"));
+        assert!(
+            full["description"]
+                .as_str()
+                .unwrap()
+                .contains("highlighted excerpts")
+        );
         assert_eq!(full["inputSchema"]["required"], json!(["query"]));
     }
 
@@ -145,7 +152,7 @@ mod tests {
             "result": {"tools": [{"name": "x", "description": "y", "inputSchema": {}}]}
         });
         let out = transform_tools_list(&msg, &schemas);
-        // regra 6: wrapper + ferramenta sintética custariam mais que o original minúsculo
+        // rule 6: the wrapper + synthetic tool would cost more than the tiny original
         assert_eq!(out, msg);
     }
 }

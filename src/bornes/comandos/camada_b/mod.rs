@@ -4,10 +4,10 @@ use serde::Deserialize;
 
 pub use engine::apply;
 
-/// Um arquivo de filtro = uma regra (specs.md §5.2/§5.3). `match_command` casa
-/// com o nome invocado (ex.: "docker"); `match_args_prefix`, se não vazio,
-/// exige que os primeiros N argumentos batam exatamente (ex.: ["images"]
-/// pra só ativar em `docker images`, não em `docker ps`).
+/// One filter file = one rule (specs.md §5.2/§5.3). `match_command` matches
+/// the invoked name (e.g. "docker"); `match_args_prefix`, if non-empty,
+/// requires the first N arguments to match exactly (e.g. ["images"] to only
+/// trigger on `docker images`, not `docker ps`).
 #[derive(Deserialize, Debug)]
 pub struct FilterFile {
     pub match_command: String,
@@ -16,10 +16,10 @@ pub struct FilterFile {
     pub pipeline: Vec<Step>,
 }
 
-/// Catálogo de ações da Camada B (specs.md §5.3). Só o subconjunto de maior
-/// retorno entra no v1 — `group_by`, `json_extract`/`json_schema`,
-/// `state_machine`, `aggregate`, `format_template` e `compact_path` ficam
-/// pra depois (nenhum comando do v1 precisa deles ainda).
+/// Layer B action catalog (specs.md §5.3). Only the highest-value subset
+/// makes it into v1 — `group_by`, `json_extract`/`json_schema`,
+/// `state_machine`, `aggregate`, `format_template`, and `compact_path` are
+/// left for later (no v1 command needs them yet).
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Step {
@@ -28,8 +28,8 @@ pub enum Step {
         pattern: String,
         replacement: String,
     },
-    /// Curto-circuito: specs.md §5.4a. Só dispara em processo bem-sucedido
-    /// (regra de negócio 2/3) — reforçado no engine, não aqui.
+    /// Short-circuit: specs.md §5.4a. Only fires on a successful process
+    /// (business rule 2/3) — enforced in the engine, not here.
     MatchOutput {
         pattern: String,
         message: String,
@@ -47,17 +47,17 @@ pub enum Step {
     MaxLines {
         limit: usize,
     },
-    /// Mesma ressalva de `MatchOutput`: só dispara em sucesso confirmado.
+    /// Same caveat as `MatchOutput`: only fires on confirmed success.
     OnEmpty {
         message: String,
     },
 }
 
-/// Filtros embutidos no binário (specs.md §5.2 — cauda longa sem precisar de
-/// parser dedicado). Adicionar um comando novo aqui ainda pede recompilar,
-/// mas o motor em si (engine.rs) não muda — a extensão real "sem recompilar"
-/// vem de `$ELAGIX_FILTERS_DIR` (ver `load_all`), onde arquivos `.toml` novos
-/// são lidos em tempo de execução.
+/// Filters embedded in the binary (specs.md §5.2 — long tail without needing
+/// a dedicated parser). Adding a new command here still requires a
+/// recompile, but the engine itself (engine.rs) doesn't change — the real
+/// "no recompile" extension point is `$ELAGIX_FILTERS_DIR` (see `load_all`),
+/// where new `.toml` files are read at runtime.
 const EMBEDDED: &[(&str, &str)] = &[
     (
         "docker-images.toml",
@@ -77,37 +77,37 @@ const EMBEDDED: &[(&str, &str)] = &[
     ),
 ];
 
-/// Carrega os filtros embutidos + qualquer `.toml` extra em
-/// `$ELAGIX_FILTERS_DIR` (default `~/.elagix/filters`). Regra de negócio 3
-/// (fail-open): um arquivo `.toml` malformado é ignorado com aviso em
-/// stderr, nunca derruba o processo inteiro.
+/// Loads the embedded filters plus any extra `.toml` in
+/// `$ELAGIX_FILTERS_DIR` (default `~/.elagix/filters`). Business rule 3
+/// (fail-open): a malformed `.toml` file is ignored with a warning on
+/// stderr, never brings down the whole process.
 pub fn load_all() -> Vec<FilterFile> {
     let mut out = Vec::new();
 
     for (name, raw) in EMBEDDED {
         match toml::from_str::<FilterFile>(raw) {
             Ok(f) => out.push(f),
-            Err(e) => eprintln!("elagix: filtro embutido '{name}' inválido, ignorando: {e}"),
+            Err(e) => eprintln!("elagix: embedded filter '{name}' is invalid, skipping: {e}"),
         }
     }
 
-    if let Some(dir) = external_filters_dir() {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("toml") {
-                    continue;
-                }
-                match std::fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|raw| toml::from_str::<FilterFile>(&raw).ok())
-                {
-                    Some(f) => out.push(f),
-                    None => eprintln!(
-                        "elagix: filtro '{}' inválido ou ilegível, ignorando",
-                        path.display()
-                    ),
-                }
+    if let Some(dir) = external_filters_dir()
+        && let Ok(entries) = std::fs::read_dir(&dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+            match std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|raw| toml::from_str::<FilterFile>(&raw).ok())
+            {
+                Some(f) => out.push(f),
+                None => eprintln!(
+                    "elagix: filter '{}' is invalid or unreadable, skipping",
+                    path.display()
+                ),
             }
         }
     }
@@ -126,8 +126,8 @@ fn external_filters_dir() -> Option<PathBuf> {
 
 use std::path::PathBuf;
 
-/// Acha o primeiro filtro cujo `match_command` bate com o binário invocado e
-/// cujo `match_args_prefix` (se houver) é prefixo dos argumentos reais.
+/// Finds the first filter whose `match_command` matches the invoked binary
+/// and whose `match_args_prefix` (if any) is a prefix of the real arguments.
 pub fn find_match<'a>(
     filters: &'a [FilterFile],
     invoked_name: &str,

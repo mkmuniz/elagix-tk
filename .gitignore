@@ -1,6 +1,6 @@
 /target/
 
-# Scratch de pesquisa/benchmark de fases anteriores (protótipos Rust/Go/Bun,
-# dashboard de comparação com o RTK, projeto Terraform de teste) — não faz
-# parte do produto, já documentado em specs.md §10. Fica fora do repo.
+# Research/benchmark scratch work from earlier phases (Rust/Go/Bun
+# prototypes, an RTK comparison dashboard, a test Terraform project) — not
+# part of the product, already documented in specs.md §10. Kept out of the repo.
 /bench/

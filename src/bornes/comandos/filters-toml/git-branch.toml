@@ -1,7 +1,7 @@
-# Camada B — specs.md §5.3. Alvo: `git branch -a`, que no RTK fica na faixa
-# 1-42% (auditoria seção 10.1) — repositórios com muitos branches remotos
-# obsoletos (`remotes/origin/HEAD`, branches de PR já mergeados) produzem
-# listas longas de baixo valor informativo.
+# Layer B — specs.md §5.3. Target: `git branch -a`, which lands in the
+# 1-42% range for RTK (audit section 10.1) — repositories with lots of stale
+# remote branches (`remotes/origin/HEAD`, already-merged PR branches)
+# produce long, low-value lists.
 match_command = "git"
 match_args_prefix = ["branch"]
 
@@ -15,4 +15,4 @@ limit = 25
 
 [[pipeline]]
 action = "on_empty"
-message = "git branch: nenhum branch"
+message = "git branch: no branches"

@@ -1,9 +1,10 @@
 const CAP_LIST: usize = 20;
 
-/// Camada A — parser de verdade pra `git status` (specs.md §5.4a).
-/// Recebe a saída de `git status --porcelain=v1 --branch` (o shim sempre roda com
-/// essas flags internamente, independente do que o usuário digitou, pra ter um
-/// formato confiável de parsear — não depende de locale/largura de coluna).
+/// Layer A — a real parser for `git status` (specs.md §5.4a).
+/// Receives the output of `git status --porcelain=v1 --branch` (the shim
+/// always runs with these flags internally, regardless of what the user
+/// typed, to get a reliable format to parse — no dependency on locale or
+/// column width).
 pub fn filter(porcelain_output: &str) -> String {
     let mut lines = porcelain_output.lines();
     let branch_line = lines.next().unwrap_or("## ?");
@@ -32,12 +33,14 @@ pub fn filter(porcelain_output: &str) -> String {
     }
 
     if staged.is_empty() && unstaged.is_empty() && untracked.is_empty() {
-        // Regra de negócio 5 corolário: mensagem só dispara quando de fato não há nada —
-        // nunca inventa "limpo" se a leitura falhou (isso seria coberto pelo fail-open, não aqui).
-        // Nome do branch de propósito FORA da mensagem: branches longos (comuns em fluxo
-        // de feature branch) fariam essa mensagem ficar maior que a saída porcelain crua,
-        // disparando a regra de negócio 6 (nunca piorar) e devolvendo o original sem filtro —
-        // vimos isso acontecer de verdade testando contra um branch real desta sessão.
+        // Business rule 5 corollary: this message only fires when there's
+        // genuinely nothing — never invents "clean" if reading failed (that's
+        // covered by fail-open, not here). Branch name deliberately left OUT
+        // of the message: long branch names (common in feature-branch
+        // workflows) would make this message bigger than the raw porcelain
+        // output, triggering business rule 6 (never make it worse) and
+        // falling back to the unfiltered original — we saw this happen for
+        // real testing against an actual branch this session.
         return "clean — nothing to commit".to_string();
     }
 
@@ -66,7 +69,7 @@ fn push_section(out: &mut String, label: &str, files: &[&str]) {
 }
 
 fn parse_branch_line(line: &str) -> String {
-    // formato: "## branch...upstream [ahead N, behind M]" ou "## branch" ou "## HEAD (no branch)"
+    // format: "## branch...upstream [ahead N, behind M]" or "## branch" or "## HEAD (no branch)"
     line.trim_start_matches("## ").to_string()
 }
 

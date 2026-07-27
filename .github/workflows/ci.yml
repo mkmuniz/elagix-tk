@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: fmt, clippy, build, test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: cargo fmt --check
+        run: cargo fmt --check
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: cargo build
+        run: cargo build --release
+      - name: cargo test
+        run: cargo test
+
+  windows-cross-compile:
+    name: cross-compile (x86_64-pc-windows-gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: cargo build --target x86_64-pc-windows-gnu
+        run: cargo build --release --target x86_64-pc-windows-gnu

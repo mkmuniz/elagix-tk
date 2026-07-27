@@ -1,10 +1,10 @@
-/// Camada A — parser de máquina de estados pra `pytest` (specs.md §5.4a).
+/// Layer A — state-machine parser for `pytest` (specs.md §5.4a).
 ///
-/// Diferença deliberada em relação ao RTK (specs.md §4, regra de negócio 5 corolário,
-/// achado direto da nossa auditoria): quando não há teste coletado por erro de
-/// import/config, preserva a ÚLTIMA linha de erro real (`E   ...`) em vez de só
-/// dizer "no tests collected" sem motivo — mantém quase toda a economia sem
-/// sacrificar informação acionável pra debugar.
+/// Deliberate difference from RTK (specs.md §4, business rule 5 corollary,
+/// direct finding from our audit): when no test was collected due to an
+/// import/config error, preserves the LAST real error line (`E   ...`)
+/// instead of just saying "no tests collected" with no reason — keeps almost
+/// all the savings without sacrificing information needed to debug.
 pub fn filter(raw: &str) -> String {
     if raw.contains("collected 0 items") {
         return filter_collection_failure(raw);
@@ -12,7 +12,7 @@ pub fn filter(raw: &str) -> String {
     if let Some(summary) = find_summary_line(raw) {
         return filter_normal_run(raw, summary);
     }
-    // Formato não reconhecido — fail-open (regra de negócio 3).
+    // Unrecognized format — fail-open (business rule 3).
     raw.to_string()
 }
 
@@ -22,14 +22,13 @@ fn filter_collection_failure(raw: &str) -> String {
         .find(|l| l.contains("collected 0 items"))
         .and_then(|l| l.split('/').nth(1))
         .map(|s| s.trim())
-        .unwrap_or("erros desconhecidos");
+        .unwrap_or("unknown errors");
 
     let last_error_line = raw
         .lines()
-        .filter(|l| l.trim_start().starts_with("E   "))
-        .next_back()
+        .rfind(|l| l.trim_start().starts_with("E   "))
         .map(str::trim)
-        .unwrap_or("(motivo não identificado)");
+        .unwrap_or("(reason not identified)");
 
     format!("Pytest: 0 tests collected ({error_count}) — {last_error_line}")
 }
@@ -41,10 +40,7 @@ fn find_summary_line(raw: &str) -> Option<&str> {
 }
 
 fn filter_normal_run<'a>(raw: &'a str, summary: &'a str) -> String {
-    let failed_names: Vec<&str> = raw
-        .lines()
-        .filter(|l| l.starts_with("FAILED "))
-        .collect();
+    let failed_names: Vec<&str> = raw.lines().filter(|l| l.starts_with("FAILED ")).collect();
 
     let mut out = String::new();
     out.push_str(summary.trim_matches(|c: char| c == '=' || c.is_whitespace()));

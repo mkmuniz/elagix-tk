@@ -1,26 +1,26 @@
 mod compress;
 mod schema;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-/// `bornes/mcp` (specs.md §6) — proxy de protocolo JSON-RPC sobre stdio.
-/// Diferente do shim de `bornes/comandos` (processo curto, uma chamada só),
-/// este processo fica vivo pela duração inteira da sessão MCP: senta entre o
-/// cliente (Claude Code, neste processo, stdin/stdout reais) e o servidor MCP
-/// de verdade (processo filho spawnado aqui).
+/// `bornes/mcp` (specs.md §6) — JSON-RPC protocol proxy over stdio. Unlike
+/// `bornes/comandos`'s shim (a short-lived, one-shot process), this process
+/// stays alive for the entire MCP session: it sits between the client
+/// (Claude Code, this process's real stdin/stdout) and the real MCP server
+/// (a child process spawned here).
 ///
-/// Duas threads: uma lê o stdin do cliente e repassa (com intercepção) pro
-/// stdin do servidor; a principal lê o stdout do servidor e repassa (com
-/// intercepção) pro stdout real. Estado compartilhado (`ProxyState`) guarda
-/// que método cada `id` de requisição pendente representa — resposta
-/// JSON-RPC não repete o método, só o `id` (specs §6.1: só dá pra decidir o
-/// que transformar numa resposta de `tools/list` sabendo que a requisição
-/// correspondente foi um `tools/list`).
+/// Two threads: one reads the client's stdin and forwards it (intercepting
+/// along the way) to the server's stdin; the main one reads the server's
+/// stdout and forwards it (intercepting along the way) to the real stdout.
+/// Shared state (`ProxyState`) tracks which method each pending request
+/// `id` represents — a JSON-RPC response doesn't repeat the method, only
+/// the `id` (specs §6.1: the only way to decide what to transform in a
+/// `tools/list` response is knowing the matching request was a `tools/list`).
 enum PendingKind {
     ToolsList,
     ToolsCall,
@@ -42,13 +42,15 @@ pub fn run(server_cmd: &str, server_args: &[String]) -> ExitCode {
     {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("elagix: falha ao iniciar servidor MCP '{server_cmd}': {e}");
+            eprintln!("elagix: failed to start MCP server '{server_cmd}': {e}");
             return ExitCode::FAILURE;
         }
     };
 
-    let child_stdin = Arc::new(Mutex::new(child.stdin.take().expect("stdin piped no spawn")));
-    let child_stdout = child.stdout.take().expect("stdout piped no spawn");
+    let child_stdin = Arc::new(Mutex::new(
+        child.stdin.take().expect("stdin piped on spawn"),
+    ));
+    let child_stdout = child.stdout.take().expect("stdout piped on spawn");
     let state = Arc::new(ProxyState::default());
 
     let state_up = state.clone();
@@ -62,19 +64,19 @@ pub fn run(server_cmd: &str, server_args: &[String]) -> ExitCode {
             }
             handle_client_message(&line, &state_up, &child_stdin_up);
         }
-        // `child_stdin_up` cai aqui, no fim do closure.
+        // `child_stdin_up` gets dropped here, at the end of the closure.
     });
 
-    // Bug real encontrado testando ao vivo (2026-07-26) com o servidor MCP
-    // falso: `child_stdin` (este escopo) e `child_stdin_up` (a thread acima)
-    // são duas cópias do mesmo `Arc` — o pipe de stdin do processo filho só
-    // fecha de verdade quando a ÚLTIMA cópia cai. Sem este `drop` explícito,
-    // esta cópia sobrevive até `run()` retornar, o que só aconteceria DEPOIS
-    // de `child.wait()` — mas o servidor real (lendo stdin até EOF) nunca
-    // recebe esse EOF enquanto o pipe não fecha, então nunca sai sozinho, e
-    // `child.wait()` trava pra sempre. Precisa soltar aqui, antes do loop de
-    // leitura abaixo — só a cópia da thread importa a partir daqui, e ela cai
-    // quando o stdin do CLIENTE fechar.
+    // Real bug found testing live (2026-07-26) with the fake MCP server:
+    // `child_stdin` (this scope) and `child_stdin_up` (the thread above) are
+    // two copies of the same `Arc` — the child process's stdin pipe only
+    // truly closes once the LAST copy is dropped. Without this explicit
+    // `drop`, this copy would survive until `run()` returns, which would
+    // only happen AFTER `child.wait()` — but the real server (reading stdin
+    // until EOF) never gets that EOF while the pipe stays open, so it never
+    // exits on its own, and `child.wait()` hangs forever. Needs to be
+    // dropped here, before the read loop below — from this point on, only
+    // the thread's copy matters, and it drops when the CLIENT's stdin closes.
     drop(child_stdin);
 
     let reader = BufReader::new(child_stdout);
@@ -109,17 +111,17 @@ fn write_value_to_client(value: &Value) {
     let _ = out.flush();
 }
 
-/// Cliente -> servidor. Intercepta `tools/call get_tool_schema` localmente
-/// (nunca chega no servidor real — ele não conhece essa ferramenta
-/// sintética) e registra `tools/list`/`tools/call` pendentes pra saber como
-/// tratar a resposta correspondente.
+/// Client -> server. Intercepts `tools/call get_tool_schema` locally (it
+/// never reaches the real server — it doesn't know about this synthetic
+/// tool) and records pending `tools/list`/`tools/call` requests so it knows
+/// how to handle the matching response.
 fn handle_client_message(
     line: &str,
     state: &Arc<ProxyState>,
     child_stdin: &Arc<Mutex<std::process::ChildStdin>>,
 ) {
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
-        write_raw_line(child_stdin, line); // fail-open (regra 3): não parseou, repassa cru
+        write_raw_line(child_stdin, line); // fail-open (rule 3): didn't parse, forward as-is
         return;
     };
 
@@ -130,7 +132,7 @@ fn handle_client_message(
         let tool_name = msg.pointer("/params/name").and_then(Value::as_str);
         if tool_name == Some("get_tool_schema") {
             respond_get_tool_schema(&msg, id, state);
-            return; // curto-circuito local — specs §6.1, passo 2
+            return; // local short-circuit — specs §6.1, step 2
         }
     }
 
@@ -163,7 +165,7 @@ fn respond_get_tool_schema(msg: &Value, id: Option<Value>, state: &Arc<ProxyStat
             false,
         ),
         None => (
-            format!("ferramenta '{requested}' não encontrada — rode tools/list primeiro"),
+            format!("tool '{requested}' not found — run tools/list first"),
             true,
         ),
     };
@@ -175,10 +177,10 @@ fn respond_get_tool_schema(msg: &Value, id: Option<Value>, state: &Arc<ProxyStat
     }));
 }
 
-/// Servidor -> cliente. Só transforma respostas (`result`/`error` presente)
-/// cujo `id` corresponde a uma requisição que registramos como
-/// `tools/list`/`tools/call` — qualquer outra coisa (notificação, request do
-/// próprio servidor, resposta de método sem tratamento especial) passa direto.
+/// Server -> client. Only transforms responses (`result`/`error` present)
+/// whose `id` matches a request we recorded as `tools/list`/`tools/call` —
+/// anything else (a notification, a request from the server itself, a
+/// response for a method with no special handling) passes straight through.
 fn handle_server_message(line: &str, state: &Arc<ProxyState>) {
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
         println!("{line}");

@@ -1,6 +1,6 @@
-# Camada B — specs.md §5.3. Alvo: `docker images`, que no RTK rende 72,7%
-# (auditoria seção 10.1, faixa "Bom"). `<none>:<none>` é ruído de camada
-# intermediária sem tag — raramente relevante pro agente.
+# Layer B — specs.md §5.3. Target: `docker images`, which scored 72.7% for
+# RTK (audit section 10.1, "Good" tier). `<none>:<none>` is untagged
+# intermediate-layer noise — rarely relevant to the agent.
 match_command = "docker"
 match_args_prefix = ["images"]
 
@@ -14,4 +14,4 @@ limit = 15
 
 [[pipeline]]
 action = "on_empty"
-message = "docker images: nenhuma imagem"
+message = "docker images: no images"

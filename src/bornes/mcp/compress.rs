@@ -1,15 +1,18 @@
 use serde_json::Value;
 
-/// Compressão de resultado de chamada MCP (specs.md §6.2, reusa as técnicas
-/// de §5.5). Só as três seguras e puramente mecânicas entram no v1 — nenhuma
-/// delas "adivinha" nada, só remove valor explicitamente ausente (`null`) ou
-/// corta o que é grande demais pra caber inteiro:
-/// - remove campos `null` recursivamente (não é inferência: o valor já era
-///   "ausente", só custava token de moldura);
-/// - corta string longa mantendo prefixo + contagem do que sobrou;
-/// - limita array grande aos primeiros N itens + marcador de omissão.
-/// Poda por relevância semântica de campo (paginação, HATEOAS) fica de fora
-/// do v1 — dependeria de conhecer a API específica, contrariaria a regra 5.
+/// MCP tool call result compression (specs.md §6.2, reuses the techniques
+/// from §5.5). Only the three safe, purely mechanical ones make it into v1 —
+/// none of them "guesses" anything, they only remove an explicitly absent
+/// value (`null`) or trim what's too large to keep in full:
+///
+///   - recursively drops `null` fields (not inference: the value was already
+///     "absent", it was only costing framing tokens);
+///   - truncates a long string, keeping a prefix + a count of what's left;
+///   - caps a large array to the first N items + an omission marker.
+///
+/// Pruning by field's semantic relevance (pagination, HATEOAS) is out of
+/// scope for v1 — it would require knowing the specific API, which would go
+/// against business rule 5.
 const MAX_STRING_CHARS: usize = 300;
 const MAX_ARRAY_ITEMS: usize = 10;
 
@@ -36,20 +39,20 @@ pub fn compress_tools_call_result(msg: &Value) -> Value {
     let mut out = msg.clone();
     out["result"]["content"] = Value::Array(new_content);
 
-    // Regra de negócio 6 na mensagem inteira, não só no bloco de texto.
-    let orig_len = serde_json::to_string(msg).map(|s| s.len()).unwrap_or(usize::MAX);
-    let new_len = serde_json::to_string(&out).map(|s| s.len()).unwrap_or(usize::MAX);
-    if new_len < orig_len {
-        out
-    } else {
-        msg.clone()
-    }
+    // Business rule 6 on the whole message, not just the text block.
+    let orig_len = serde_json::to_string(msg)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    let new_len = serde_json::to_string(&out)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    if new_len < orig_len { out } else { msg.clone() }
 }
 
-/// Só comprime blocos `{"type": "text", "text": "<json>"}` cujo texto é JSON
-/// de verdade — resultado de ferramenta MCP costuma serializar o payload
-/// real como string dentro do content block (specs §6.2). Texto livre (não
-/// JSON) fica intocado — fora do escopo desta técnica.
+/// Only compresses `{"type": "text", "text": "<json>"}` blocks whose text is
+/// actually JSON — MCP tool results typically serialize the real payload as
+/// a string inside the content block (specs §6.2). Free-form text (not
+/// JSON) is left untouched — out of scope for this technique.
 fn try_compact_text_block(block: &Value) -> Option<Value> {
     if block.get("type").and_then(Value::as_str) != Some("text") {
         return None;
@@ -80,7 +83,11 @@ fn compact_json(value: &Value) -> Value {
             Value::Object(out)
         }
         Value::Array(items) => {
-            let mut out: Vec<Value> = items.iter().take(MAX_ARRAY_ITEMS).map(compact_json).collect();
+            let mut out: Vec<Value> = items
+                .iter()
+                .take(MAX_ARRAY_ITEMS)
+                .map(compact_json)
+                .collect();
             if items.len() > MAX_ARRAY_ITEMS {
                 out.push(serde_json::json!({
                     "_elagix_omitted_items": items.len() - MAX_ARRAY_ITEMS
@@ -91,7 +98,7 @@ fn compact_json(value: &Value) -> Value {
         Value::String(s) if s.chars().count() > MAX_STRING_CHARS => {
             let truncated: String = s.chars().take(MAX_STRING_CHARS).collect();
             Value::String(format!(
-                "{truncated}…(+{} chars omitidos)",
+                "{truncated}…(+{} chars omitted)",
                 s.chars().count() - MAX_STRING_CHARS
             ))
         }
@@ -133,7 +140,7 @@ mod tests {
         let text = out["result"]["content"][0]["text"].as_str().unwrap();
         let parsed: Value = serde_json::from_str(text).unwrap();
         let arr = parsed["items"].as_array().unwrap();
-        assert_eq!(arr.len(), MAX_ARRAY_ITEMS + 1); // 10 itens + marcador
+        assert_eq!(arr.len(), MAX_ARRAY_ITEMS + 1); // 10 items + marker
         assert_eq!(arr[MAX_ARRAY_ITEMS]["_elagix_omitted_items"], 20);
     }
 
@@ -144,7 +151,7 @@ mod tests {
         let out = compress_tools_call_result(&msg);
         let text = out["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.len() < 500);
-        assert!(text.contains("chars omitidos"));
+        assert!(text.contains("chars omitted"));
     }
 
     #[test]
@@ -161,6 +168,6 @@ mod tests {
     fn small_result_falls_back_to_original() {
         let msg = wrap(&json!({"ok": true}));
         let out = compress_tools_call_result(&msg);
-        assert_eq!(out, msg); // nada pra cortar, regra 6 evita "melhorar" pra pior
+        assert_eq!(out, msg); // nothing to trim, rule 6 avoids "improving" it into something worse
     }
 }

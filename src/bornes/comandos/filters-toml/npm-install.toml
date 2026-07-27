@@ -1,8 +1,8 @@
-# Camada B — specs.md §5.3. Alvo: `npm install`. No RTK esse caso rendeu
-# -64,3% (auditoria seção 10.1, "piorou") — mas por divergência de PATH/
-# plumbing (tipo de falha nº 4, seção 10.2), não por falha de estratégia.
-# Aqui a estratégia em si: descartar avisos de depreciação em cascata
-# (ruído repetitivo por pacote transitivo) e manter só o resumo final.
+# Layer B — specs.md §5.3. Target: `npm install`. RTK scored -64.3% on this
+# one (audit section 10.1, "got worse") — but due to PATH/plumbing
+# divergence (failure type #4, section 10.2), not a strategy failure. The
+# strategy itself here: drop cascading deprecation warnings (repetitive
+# noise per transitive package) and keep just the final summary.
 match_command = "npm"
 match_args_prefix = ["install"]
 
@@ -16,4 +16,4 @@ limit = 20
 
 [[pipeline]]
 action = "on_empty"
-message = "npm install: concluído sem saída"
+message = "npm install: completed with no output"

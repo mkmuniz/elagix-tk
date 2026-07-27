@@ -1,11 +1,13 @@
-/// Camada A — parser pra `git log` (specs.md §5.4b, "truncamento estrutural com corte duro").
-/// Mantém o primeiro commit quase completo (hash, autor, data, primeira linha da
-/// mensagem) e descarta o resto, substituindo por uma contagem de linhas omitidas.
+/// Layer A — parser for `git log` (specs.md §5.4b, "structural truncation
+/// with a hard cutoff"). Keeps the first commit almost complete (hash,
+/// author, date, first line of the message) and drops the rest, replacing
+/// it with a count of omitted lines.
 ///
-/// M7 (specs.md §7.2): o corpo da mensagem do primeiro commit, que antes era
-/// descartado por completo (igual o RTK), agora passa por `bornes/prosa` — resume
-/// em 1 frase em vez de apagar, só rotulado "resumo" quando de fato encolheu
-/// (senão seria uma frase só, mostrada por completo e rotulada "corpo").
+/// M7 (specs.md §7.2): the first commit's message body, which used to be
+/// dropped entirely (like RTK), now goes through `bornes/prosa` — summarized
+/// down to 1 sentence instead of erased, only labeled "summary" when it
+/// actually shrank (otherwise it was a single sentence already, shown in
+/// full and labeled "body").
 pub fn filter(raw: &str) -> String {
     let lines: Vec<&str> = raw.lines().collect();
     let mut commit_starts: Vec<usize> = lines
@@ -48,7 +50,11 @@ pub fn filter(raw: &str) -> String {
     if !body_lines.is_empty() {
         let body = body_lines.join(" ");
         let summary = crate::bornes::prosa::summarize(&body, 1);
-        let label = if summary.len() < body.len() { "resumo" } else { "corpo" };
+        let label = if summary.len() < body.len() {
+            "summary"
+        } else {
+            "body"
+        };
         out.push_str(&format!("  {label}: {summary}\n"));
     }
 
@@ -65,13 +71,14 @@ mod tests {
 
     #[test]
     fn single_commit_passthrough_with_marker() {
-        let input = "commit abc123\nAuthor: A <a@b.com>\nDate:   today\n\n    fix: bug\n\n    body line\n";
+        let input =
+            "commit abc123\nAuthor: A <a@b.com>\nDate:   today\n\n    fix: bug\n\n    body line\n";
         let out = filter(input);
         assert!(out.contains("commit abc123"));
         assert!(out.contains("fix: bug"));
-        // M7: corpo de 1 frase só não encolhe (nada pra resumir) — mostrado por
-        // completo e rotulado "corpo", não descartado como antes do M7.
-        assert!(out.contains("corpo: body line"));
+        // M7: a single-sentence body doesn't shrink (nothing to summarize) —
+        // shown in full and labeled "body", not dropped like before M7.
+        assert!(out.contains("body: body line"));
     }
 
     #[test]
@@ -84,10 +91,11 @@ mod tests {
         assert!(out.contains("omitted"));
     }
 
-    /// Fixture real: `git log -5` capturado do repositório bastion-agent nesta sessão
-    /// (2026-07-26) — 5 commits reais, um deles com corpo de mensagem longo (parágrafo
-    /// inteiro). Serve de regressão pro bug de recursão do shim que achamos testando
-    /// isso ao vivo (não era bug do parser — era do `resolve_real_binary`, já corrigido).
+    /// Real fixture: `git log -5` captured from the bastion-agent repository
+    /// during this session (2026-07-26) — 5 real commits, one of them with a
+    /// long message body (a whole paragraph). Serves as a regression test
+    /// for the shim recursion bug found testing this live (it wasn't a
+    /// parser bug — it was in `resolve_real_binary`, already fixed).
     #[test]
     fn real_fixture_five_commits() {
         let input = include_str!("test_fixture_gitlog.txt");
@@ -97,11 +105,12 @@ mod tests {
         let out = filter(input);
         assert!(out.starts_with("commit cb93a3bd721a85b25c113413c8ed93b099bcc7f8"));
         assert!(out.contains("chore: cargo fmt (fix CI fmt-check failure)"));
-        // M7: corpo de 2 frases agora é resumido em 1 (bornes/prosa) em vez de
-        // descartado por completo — só uma das duas frases originais sobrevive.
-        assert!(out.contains("resumo:"));
+        // M7: a 2-sentence body is now summarized down to 1 (bornes/prosa)
+        // instead of being dropped entirely — only one of the two original
+        // sentences survives.
+        assert!(out.contains("summary:"));
         assert!(!(out.contains("Never ran cargo fmt") && out.contains("Purely mechanical")));
-        assert!(!out.contains("commit e1fe7741")); // segundo commit não aparece
+        assert!(!out.contains("commit e1fe7741")); // second commit doesn't show up
         assert!(out.contains("[+154 lines omitted]"));
     }
 }

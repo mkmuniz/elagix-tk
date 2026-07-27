@@ -1,11 +1,11 @@
-/// Camada A — parser pra `cargo test` (specs.md §5.4a, curto-circuito por
-/// reconhecimento de padrão). Extrai a linha de resumo final ("test result: ...")
-/// e, se houver falhas, a lista curta de nomes — descarta o output verboso de
-/// compilação e o stdout/panic completo de cada teste que falhou.
+/// Layer A — parser for `cargo test` (specs.md §5.4a, pattern-recognition
+/// short-circuit). Extracts the final summary line ("test result: ...") and,
+/// if there are failures, the short list of names — drops the verbose
+/// compilation output and the full stdout/panic of each failed test.
 pub fn filter(raw: &str) -> String {
     let Some(summary) = find_summary_line(raw) else {
-        // Formato não reconhecido (ex: erro de compilação antes dos testes rodarem)
-        // — fail-open (regra de negócio 3), passa a saída original sem filtro.
+        // Unrecognized format (e.g. a compile error before tests ran) —
+        // fail-open (business rule 3), passes the original output through unfiltered.
         return raw.to_string();
     };
 
@@ -30,8 +30,9 @@ fn find_summary_line(raw: &str) -> Option<&str> {
 }
 
 fn extract_failed_names(raw: &str) -> Vec<&str> {
-    // cargo imprime uma seção "failures:\n    nome1\n    nome2\n\ntest result: ..."
-    // logo antes do resumo — pega só essa lista curta, não os panics completos acima.
+    // cargo prints a "failures:\n    name1\n    name2\n\ntest result: ..."
+    // section right before the summary — grab just that short list, not the
+    // full panics above it.
     let Some(section_start) = raw.rfind("\nfailures:\n") else {
         return Vec::new();
     };
@@ -62,7 +63,7 @@ mod tests {
         assert!(out.contains("1 passed; 1 failed"));
         assert!(out.contains("failures:"));
         assert!(out.contains("  b"));
-        assert!(!out.contains("panicked")); // stack trace do panic descartado
+        assert!(!out.contains("panicked")); // panic stack trace dropped
     }
 
     #[test]

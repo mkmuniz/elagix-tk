@@ -1,7 +1,7 @@
-# Camada B — specs.md §5.3. Alvo: `terraform plan`, faixa 1-42% no RTK
-# (auditoria seção 10.1). Ruído típico: refresh de estado recurso-a-recurso
-# (uma linha por recurso já existente, sem mudança) e o resumo "unchanged"
-# repetido por recurso — o que importa é o que MUDA, não o que refrescou.
+# Layer B — specs.md §5.3. Target: `terraform plan`, 1-42% range for RTK
+# (audit section 10.1). Typical noise: per-resource state refresh (one line
+# per already-existing, unchanged resource) and the "unchanged" summary
+# repeated per resource — what matters is what CHANGES, not what refreshed.
 match_command = "terraform"
 match_args_prefix = ["plan"]
 
@@ -18,4 +18,4 @@ limit = 80
 
 [[pipeline]]
 action = "on_empty"
-message = "terraform plan: sem mudanças"
+message = "terraform plan: no changes"

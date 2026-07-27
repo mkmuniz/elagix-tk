@@ -1,172 +1,172 @@
-# Elagix — Especificação Técnica v1
+# Elagix — Technical Specification v1
 
-> Status: arquitetura macro e técnicas principais **decididas** com base em pesquisa (RTK, snip, Headroom, mcp-compressor, context-compressor, papers acadêmicos) e validação empírica própria (450 execuções de benchmark de linguagem + auditoria de 64 comandos reais do RTK). O que resta em aberto está isolado na seção 13, pra virar milestones. Nada disso foi implementado ainda — isto é especificação.
+> Status: macro architecture and core techniques **decided** based on research (RTK, snip, Headroom, mcp-compressor, context-compressor, academic papers) and our own empirical validation (450 language-benchmark runs + an audit of 64 real RTK commands). What's still open is isolated in section 13, to become milestones. All of it has been implemented since — this document has been kept up to date as a living spec, not a pre-implementation plan.
 
 ---
 
-## 1. Objetivo
+## 1. Goal
 
-Ferramenta (nome de trabalho: **Elagix**) que reduz o desperdício de tokens em sessões de agente de codificação (Claude Code) em três frentes: saída de comando de shell, definição/resultado de ferramenta MCP, e prosa em linguagem natural (mensagens de commit, prompts). Tudo determinístico e auditável — sem depender de recursos do Claude Code que já provamos frágeis ou ausentes em certas plataformas, e sem depender de modelo externo (exceto como extensão opcional, nunca no caminho padrão).
+A tool (working name: **Elagix**) that reduces token waste in coding-agent sessions (Claude Code) on three fronts: shell command output, MCP tool definition/result, and natural-language prose (commit messages, prompts). Everything deterministic and auditable — without depending on Claude Code features we've already proven fragile or missing on certain platforms, and without depending on an external model (except as an optional extension, never on the default path).
 
-## 2. Por que não depender de hooks do Claude Code
+## 2. Why not depend on Claude Code hooks
 
-Ao instalar o RTK (`rtk-ai/rtk`), confirmamos experimentalmente que o mecanismo de reescrita automática de comando dele depende do campo `updatedInput` retornado por hooks `PreToolUse` — e esse campo é **silenciosamente ignorado no Windows** (bug público confirmado: GitHub `anthropics/claude-code` issue #79321, `platform:windows`, `has repro`). Sem esse mecanismo, o RTK nunca é sequer invocado — não existe fallback.
+While installing RTK (`rtk-ai/rtk`), we confirmed experimentally that its automatic command-rewriting mechanism depends on the `updatedInput` field returned by `PreToolUse` hooks — and that field is **silently ignored on Windows** (publicly confirmed bug: GitHub `anthropics/claude-code` issue #79321, `platform:windows`, `has repro`). Without that mechanism, RTK is never even invoked — there's no fallback.
 
-Investigamos mais dois hooks candidatos a resolver problemas parecidos, com o mesmo resultado:
+We investigated two more hook candidates for solving similar problems, with the same result:
 
-| Hook | O que prometia | Por que não serve |
+| Hook | What it promised | Why it doesn't work |
 |---|---|---|
-| `PreToolUse.updatedInput` | Reescrever comando antes de rodar (abordagem do RTK) | Ignorado no Windows (#79321) |
-| `UserPromptSubmit` | Substituir o prompt do usuário antes de chegar no modelo | **Não existe campo de substituição em nenhuma plataforma** — só `additionalContext` (que adiciona, não troca), e isso nem funciona na extensão VSCode (#49063, #15021) |
-| `PostToolUse.updatedToolOutput` | Substituir resultado de uma ferramenta | Restrito de propósito a ferramentas MCP (pedido de extensão pra ferramentas nativas fechado sem implementar, #32105) e mesmo assim nunca dispara no Windows+VSCode (#27014) |
+| `PreToolUse.updatedInput` | Rewrite a command before it runs (RTK's approach) | Ignored on Windows (#79321) |
+| `UserPromptSubmit` | Replace the user's prompt before it reaches the model | **No replacement field exists on any platform** — only `additionalContext` (which adds, doesn't replace), and even that doesn't work in the VSCode extension (#49063, #15021) |
+| `PostToolUse.updatedToolOutput` | Replace a tool's result | Restricted by design to MCP tools (an extension request for native tools was closed without implementation, #32105), and even then it never fires on Windows+VSCode (#27014) |
 
-**Conclusão de design**: três hooks de mutação diferentes testados, três quebrados ou ausentes nesta plataforma. Nenhum mecanismo do Elagix pode depender de hook do Claude Code pra mutar algo (input, prompt ou output) — tem que interceptar por fora, em camadas que o Claude Code nem sabe que existem.
+**Design conclusion**: three different mutation hooks tested, three broken or missing on this platform. No Elagix mechanism can depend on a Claude Code hook to mutate anything (input, prompt, or output) — it has to intercept from the outside, in layers Claude Code doesn't even know exist.
 
-## 3. Arquitetura macro — os 3 `bornes`
+## 3. Macro architecture — the 3 `bornes`
 
-**Decidido, 2026-07-26.** Escopo cobre três eixos de desperdício de token, cada um com mecanismo de interceptação próprio — não dá pra reaproveitar código de interceptação entre eles, só a filosofia e as regras de negócio (seção 4). Organizados como módulos autocontidos numa pasta `bornes/` (francês pra "borne" — a catraca/terminal onde se insere a ficha pra passar, ex: borne de métro — cada módulo é um ponto de passagem obrigatório):
+**Decided, 2026-07-26.** Scope covers three axes of token waste, each with its own interception mechanism — interception code can't be reused between them, only the philosophy and the business rules (section 4). Organized as self-contained modules in a `bornes/` folder (French for "borne" — the turnstile/terminal where you insert a token to pass through, e.g. a métro borne — each module is a mandatory checkpoint):
 
 ```
 elagix/
   bornes/
-    comandos/   # shim de PATH — saída de comando de shell (git, docker, cargo, curl, wget, gh, aws, gcloud...)
-    mcp/        # proxy de protocolo JSON-RPC — schema de ferramenta MCP (lazy-loading) + resultado de chamada
-    prosa/      # função de compressão TF-IDF extrativa — chamada pelos outros dois bornes, sem interceptação própria
+    comandos/   # PATH shim — shell command output (git, docker, cargo, curl, wget, gh, aws, gcloud...)
+    mcp/        # JSON-RPC protocol proxy — MCP tool schema (lazy-loading) + call result
+    prosa/      # extractive TF-IDF compression function — called by the other two bornes, no interception of its own
 ```
 
-Implementado de verdade dentro de `src/` a partir do M8 (antes disso o código ficava mais achatado — ver MILESTONES.md, "Reestruturação de pastas"), com um `core/` a mais pra infraestrutura genuinamente cross-cutting (o armazém endereçado por hash da seção 8, que os três `bornes` podem usar):
+Actually implemented inside `src/` starting from M8 (before that the code was flatter — see MILESTONES.md, "Folder restructuring"), with an extra `core/` for genuinely cross-cutting infrastructure (the content-addressed store from section 8, usable by all three bornes):
 
 ```
 src/
-  main.rs        # ponto de entrada fino: meta-comando (core::meta) vs shim (bornes::comandos)
-  core/          # store.rs (armazém), meta.rs (roteamento de `elagix show/store/compress/mcp`)
+  main.rs        # thin entry point: meta-command (core::meta) vs shim (bornes::comandos)
+  core/          # store.rs (the store), meta.rs (routes `elagix show/store/compress/mcp`)
   bornes/
-    comandos/    # shim.rs, filters/ (Camada A), camada_b/ (Camada B), filters-toml/ (dados)
+    comandos/    # shim.rs, filters/ (Layer A), camada_b/ (Layer B), filters-toml/ (data)
     mcp/
     prosa/
 ```
 
-| Borne | O que comprime | Mecanismo de interceptação | Depende de hook do Claude Code? |
+| Borne | What it compresses | Interception mechanism | Depends on a Claude Code hook? |
 |---|---|---|---|
-| `bornes/comandos` | Saída de `git`, `docker`, `cargo`, `pytest`, `curl`, `wget`, `gh`, `aws`, `gcloud`, etc. | Shim de `$PATH` (técnica do nvm/pyenv/asdf/rbenv) | Não |
-| `bornes/mcp` | Schema de ferramenta MCP + resultado de chamada de ferramenta MCP | Proxy de protocolo JSON-RPC (senta entre cliente e servidor) | Não |
-| `bornes/prosa` | Corpo de mensagem de commit, rascunho de prompt (`/compress`) | N/A — é uma função chamada pelos outros dois bornes, não um ponto de interceptação | N/A |
+| `bornes/comandos` | Output of `git`, `docker`, `cargo`, `pytest`, `curl`, `wget`, `gh`, `aws`, `gcloud`, etc. | `$PATH` shim (nvm/pyenv/asdf/rbenv technique) | No |
+| `bornes/mcp` | MCP tool schema + MCP tool call result | JSON-RPC protocol proxy (sits between client and server) | No |
+| `bornes/prosa` | Commit message body, prompt draft (`/compress`) | N/A — a function called by the other two bornes, not an interception point | N/A |
 
-## 4. Regras de negócio (aplicam aos três `bornes`)
+## 4. Business rules (apply to all three `bornes`)
 
-Requisitos, não candidatos — motivados por um risco real e documentado (paper arXiv 2607.13071, "Compaction as Epistemic Failure": um caso real onde a saída truncada de um processo interrompido foi resumida como sucesso confirmado, e essa informação falsa se propagou como fato verdadeiro em sessões seguintes do agente).
+Requirements, not candidates — motivated by a real, documented risk (paper arXiv 2607.13071, "Compaction as Epistemic Failure": a real case where a truncated output from an interrupted process was summarized as confirmed success, and that false information propagated as fact into the agent's later sessions).
 
-1. **Exit code sempre preservado e sinalizado sem ambiguidade** — nunca escondido atrás de uma mensagem resumida.
-2. **Nenhum atalho de "sucesso"/"sem mudanças" pode aparecer se o processo morreu, foi interrompido ou saiu com erro.** Importante (achado de implementação, M2, 2026-07-26): isso é responsabilidade de **cada filtro nunca fabricar sucesso**, não de desligar a filtragem inteira em qualquer saída não-zero — o caso de maior valor do `pytest` (falha de coleta) só existe justamente quando o exit code não é zero. Uma primeira implementação desligava o filtro nesse caso por engano, exatamente o oposto do pretendido.
-3. **Fail-open**: qualquer erro interno do filtro deixa a saída bruta passar sem modificação — nunca falha escondendo dados.
-4. **Saída bruta sempre recuperável** — via disclosure progressivo (seção 8).
-5. **Nunca falsificar ou inferir resultado** — só reformata o que realmente saiu, nunca resume com base em suposição. Corolário (achado da seção 10, item de pytest): quando um curto-circuito por reconhecimento de padrão for usado, preservar pelo menos a última linha de erro real, não só uma contagem — mantém a economia sem sacrificar informação acionável.
-6. **A saída filtrada nunca pode ser maior que a saída original** — se uma transformação resultaria em mais bytes que o input, descarta a transformação e devolve o original sem modificação. Motivado por achado empírico (seção 10): essa regra sozinha teria evitado quase todos os casos onde o RTK piorou a saída. Nenhuma técnica testada precisa dessa garantia desabilitada pra funcionar — é puro ganho, sem trade-off conhecido.
-7. **Elagix sempre herda o mesmo `$PATH`/ambiente do processo que o invocou** — nunca resolve binários por conta própria (achado da seção 10: foi exatamente essa divergência que fez o RTK gerar um erro pior que o do shell nativo num teste nosso).
+1. **Exit code always preserved and signaled unambiguously** — never hidden behind a summarized message.
+2. **No "success"/"no changes" shortcut may appear if the process died, was interrupted, or exited with an error.** Important (implementation finding, M2, 2026-07-26): this is each filter's own responsibility — **never fabricate success** — not something achieved by turning off filtering entirely on any non-zero exit. `pytest`'s highest-value case (collection failure) only exists precisely when the exit code is non-zero. An early implementation turned off the filter in exactly that case by mistake — the opposite of what was intended.
+3. **Fail-open**: any internal filter error lets the raw output through unmodified — never fails by hiding data.
+4. **Raw output always recoverable** — via progressive disclosure (section 8).
+5. **Never falsify or infer a result** — only reformats what actually came out, never summarizes based on assumption. Corollary (finding from section 10, the pytest item): when a pattern-recognition shortcut is used, preserve at least the last real error line, not just a count — keeps the savings without sacrificing information needed to act on it.
+6. **Filtered output can never be larger than the raw output** — if a transformation would result in more bytes than the input, discard the transformation and return the original unmodified. Motivated by an empirical finding (section 10): this rule alone would have prevented almost every case where RTK made output worse. No technique tested needs this guarantee disabled to work — it's pure upside, no known trade-off.
+7. **Elagix always inherits the same `$PATH`/environment as the process that invoked it** — never resolves binaries on its own (finding from section 10: it was exactly this kind of divergence that made RTK produce a worse error than the native shell in one of our tests).
 
 ---
 
-## 5. `bornes/comandos` — especificação
+## 5. `bornes/comandos` — specification
 
-### 5.1 Mecanismo de interceptação: shim de `$PATH` (decidido)
+### 5.1 Interception mechanism: `$PATH` shim (decided)
 
-Um executável com o mesmo nome do comando real (ex: `git`) fica numa pasta que vem **antes** do PATH real do sistema. Quando o shell resolve `git status`, encontra o shim primeiro.
+An executable with the same name as the real command (e.g. `git`) sits in a folder that comes **before** the system's real PATH. When the shell resolves `git status`, it finds the shim first.
 
 ```mermaid
 sequenceDiagram
     participant Claude
     participant Shell
-    participant Shim as ~/.elagix/shims/git (binário Elagix)
-    participant RealGit as git real (PATH original)
-    Claude->>Shell: roda "git status" (sem prefixo)
-    Shell->>Shim: resolve "git" -> shim (na frente do PATH)
-    Shim->>Shim: stdout é TTY (humano) ou pipe (agente/script)?
-    alt TTY — uso humano interativo
-        Shim->>RealGit: exec direto, sem filtrar (passthrough total)
-    else pipe — Claude Code capturando
-        Shim->>RealGit: roda git real, captura stdout/stderr/exit code
-        RealGit-->>Shim: saída bruta + exit code
-        Shim->>Shim: aplica pipeline de filtros (seção 5.2)
-        Shim-->>Claude: saída comprimida, exit code preservado
+    participant Shim as ~/.elagix/shims/git (Elagix binary)
+    participant RealGit as real git (original PATH)
+    Claude->>Shell: runs "git status" (no prefix)
+    Shell->>Shim: resolves "git" -> the shim (ahead in PATH)
+    Shim->>Shim: is stdout a TTY (human) or a pipe (agent/script)?
+    alt TTY — interactive human use
+        Shim->>RealGit: exec directly, no filtering (total passthrough)
+    else pipe — Claude Code capturing
+        Shim->>RealGit: runs the real git, captures stdout/stderr/exit code
+        RealGit-->>Shim: raw output + exit code
+        Shim->>Shim: applies the filter pipeline (section 5.2)
+        Shim-->>Claude: compressed output, exit code preserved
     end
 ```
 
-**Por que este mecanismo e não o hook do Claude Code**: não depende de nenhum recurso do Claude Code (seção 2) — funciona em qualquer shell (Bash, PowerShell, cmd, zsh) e qualquer cliente, incluindo pra humanos digitando direto no terminal. Performance idêntica a um prefixo manual — o ganho é ergonomia e robustez, não velocidade.
+**Why this mechanism and not a Claude Code hook**: doesn't depend on any Claude Code feature (section 2) — works in any shell (Bash, PowerShell, cmd, zsh) and any client, including for humans typing directly into a terminal. Performance identical to a manual prefix — the gain is ergonomics and robustness, not speed.
 
-**Detecção de TTY resolve de graça** o problema de comandos interativos (`git rebase -i`, paginação de `git log`, prompt de credencial): quando é um humano no terminal, passa direto sem filtrar. Só filtra quando a saída está sendo capturada de forma não-interativa.
+**TTY detection solves for free** the problem of interactive commands (`git rebase -i`, `git log` pagination, a credential prompt): when it's a human at the terminal, it passes straight through unfiltered. It only filters when the output is being captured non-interactively.
 
-**Limitação conhecida**: só funciona quando a resolução do comando passa pelo `$PATH` do shell — é exatamente como o Claude Code roda Bash/PowerShell (confirmado por nós), mas uma ferramenta que chame o binário por caminho absoluto direto não passaria pelo shim.
+**Known limitation**: only works when command resolution goes through the shell's `$PATH` — which is exactly how Claude Code runs Bash/PowerShell (confirmed by us), but a tool that calls the binary by an absolute path directly wouldn't go through the shim.
 
-**Achado crítico do M8 (2026-07-26), que quase invalidou a ativação inteira**: "o `$PATH` tem o shim na frente" não é suficiente — depende de EM QUAL ARQUIVO de configuração de shell essa mudança de `$PATH` mora, porque isso muda com a combinação exata login/interativo com que o processo real é invocado, e diferentes combinações leem arquivos diferentes (é regra do bash, não do elagix). Confirmado ao vivo que o Claude Code (nesta configuração: extensão VSCode no Windows, WSL como backend de shell) invoca comando como `wsl -e bash -lc "..."` — **login, não-interativo**. `~/.bashrc` sozinho (onde a v0 do instalador colocava a linha) nunca roda nesse caso, por causa do guard `if not interactive, exit` que o `.bashrc` padrão do Ubuntu tem no topo. Fix (detalhado em MILESTONES.md, seção "Correção crítica pós-M8"): a mudança de PATH precisa estar em `~/.profile` (cobre login) **e** no topo de `~/.bashrc`, antes do guard (cobre não-login+interativo) — nenhum arquivo sozinho cobre as duas combinações reais de invocação. **Corolário pra qualquer plataforma nova**: antes de declarar a ativação "pronta" em qualquer sistema operacional/shell, precisa confirmar experimentalmente qual é o padrão exato de invocação de shell que o Claude Code usa NAQUELA plataforma — não dá pra assumir que generaliza do WSL/Linux.
+**Critical M8 finding (2026-07-26) that nearly invalidated the entire activation**: "the shim is ahead in `$PATH`" isn't enough by itself — it depends on WHICH shell config file that `$PATH` change lives in, because that changes with the exact login/interactive combination the real process is invoked with, and different combinations read different files (that's a bash rule, not an Elagix one). Confirmed live that Claude Code (in this setup: VSCode extension on Windows, WSL as the shell backend) invokes commands as `wsl -e bash -lc "..."` — **login, non-interactive**. `~/.bashrc` alone (where installer v0 put the line) never runs in that case, because of the `if not interactive, exit` guard that Ubuntu's default `.bashrc` has at the top. Fix (detailed in MILESTONES.md, "Critical post-M8 fix" section): the PATH change needs to live in `~/.profile` (covers login) **and** at the top of `~/.bashrc`, before the guard (covers non-login+interactive) — no single file covers both real invocation combinations. **Corollary for any new platform**: before declaring activation "ready" on any OS/shell, you need to confirm experimentally the exact shell invocation pattern Claude Code uses on THAT platform — it can't be assumed to generalize from WSL/Linux.
 
-### 5.2 Arquitetura de compressão: duas camadas (decidido)
+### 5.2 Compression architecture: two layers (decided)
 
-| Camada | O que é | Por quê |
+| Layer | What it is | Why |
 |---|---|---|
-| **Camada A — parsers dedicados** | Código escrito à mão pros comandos de maior volume (`git status`, `git log`, `git diff`, `pytest`, `cargo test`) — entendem a estrutura real do formato | Evidência da seção 10: são as únicas categorias que renderam consistentemente ≥80% de redução. Todo o resto (Camada B, regra genérica) produziu uma cauda de 0% ou negativo |
-| **Camada B — pipeline declarativo** | Motor de regras (regex/linha) configurável por arquivo, sem recompilar, pra cauda longa de comandos menos usados | Mais fácil de estender, mas com teto estrutural: só funciona quando o ruído específico que a regra procura aparece de fato (achado da seção 10, tipo de falha nº 3) |
+| **Layer A — dedicated parsers** | Hand-written code for the highest-volume commands (`git status`, `git log`, `git diff`, `pytest`, `cargo test`) — understand the format's real structure | Evidence from section 10: these are the only categories that consistently delivered ≥80% reduction. Everything else (Layer B, a generic rule) produced a long tail of 0% or negative |
+| **Layer B — declarative pipeline** | A rule engine (regex/line-based) configurable per file, no recompiling, for the long tail of less-used commands | Easier to extend, but with a structural ceiling: it only works when the specific noise a rule looks for actually shows up (finding from section 10, failure type #3) |
 
-**Decisão explícita, com evidência**: pipeline único genérico (sem Camada A) foi descartado — é exatamente esse tipo de abordagem que produziu as 16 categorias em 0% exato na auditoria do RTK (seção 10). Duas camadas, na mesma linha do RTK, é a arquitetura correta.
+**Explicit decision, with evidence**: a single generic pipeline (no Layer A) was rejected — it's exactly that kind of approach that produced the 16 categories at exactly 0% in RTK's audit (section 10). Two layers, along the same lines as RTK, is the correct architecture.
 
-### 5.3 Catálogo de ações da Camada B
+### 5.3 Layer B action catalog
 
-| Ação | O que faz |
+| Action | What it does |
 |---|---|
-| `strip_ansi` | Remove códigos de escape de cor/formatação |
-| `replace` (regex linha-a-linha) | Substituição encadeável, suporta backreferences |
-| `match_output` (curto-circuito) | Substitui a saída inteira por mensagem fixa se um padrão bater |
-| `keep_lines` / `strip_lines_matching` | Filtro de linha por regex |
-| `truncate_lines` | Corta cada linha em N caracteres |
-| `head` / `tail` | Mantém primeiras/últimas N linhas |
-| `max_lines` | Teto rígido de linhas |
-| `on_empty` | Mensagem de fallback se tudo foi filtrado |
-| `group_by` | Agrupa linhas por grupo de captura regex |
-| `dedup` | Remove duplicatas (com normalização opcional) |
-| `json_extract` / `json_schema` / `ndjson_stream` | Extração de campo, inferência de schema, streaming NDJSON |
-| `regex_extract` | Captura grupos de regex |
-| `state_machine` | Processamento multi-estado (usado em parsers de teste tipo pytest) |
-| `aggregate` | Conta ocorrências de padrão |
-| `format_template` | Formatação via template |
-| `compact_path` | Abrevia caminhos de arquivo longos |
-| Parsing de diff unificado | Entende headers `diff --git`/`---`/`+++`/`@@` pra tratar por arquivo |
-| Filtro por nível pra código-fonte (None/Minimal/Aggressive) | Remove corpo de função mantendo assinatura; formatos de dado (JSON/YAML) sempre em modo brando |
+| `strip_ansi` | Removes color/formatting escape codes |
+| `replace` (line-by-line regex) | Chainable substitution, supports backreferences |
+| `match_output` (short-circuit) | Replaces the whole output with a fixed message if a pattern matches |
+| `keep_lines` / `strip_lines_matching` | Line filter by regex |
+| `truncate_lines` | Cuts each line to N characters |
+| `head` / `tail` | Keeps the first/last N lines |
+| `max_lines` | Hard cap on line count |
+| `on_empty` | Fallback message if everything got filtered out |
+| `group_by` | Groups lines by a regex capture group |
+| `dedup` | Removes duplicates (with optional normalization) |
+| `json_extract` / `json_schema` / `ndjson_stream` | Field extraction, schema inference, NDJSON streaming |
+| `regex_extract` | Captures regex groups |
+| `state_machine` | Multi-state processing (used in test parsers like pytest's) |
+| `aggregate` | Counts pattern occurrences |
+| `format_template` | Template-based formatting |
+| `compact_path` | Abbreviates long file paths |
+| Unified diff parsing | Understands `diff --git`/`---`/`+++`/`@@` headers to handle per-file |
+| Level-based filter for source code (None/Minimal/Aggressive) | Strips a function's body while keeping its signature; data formats (JSON/YAML) always stay in mild mode |
 
-### 5.4 Mecânica exata, com exemplos reais medidos nesta sessão
+### 5.4 Exact mechanics, with real examples measured in this project
 
-Isso **não usa embeddings nem nenhum modelo** — é manipulação de texto/string pura (regex, contagem de linha, parsing de formato conhecido). O regex classifica o texto em blocos e decide, por bloco: mantém verbatim, apaga inteiro, ou substitui por uma frase fixa — nunca reescreve/otimiza o texto que sobrevive. "Token" aqui é sempre a estimativa `caracteres/4` (seção 5.4.1). Cada exemplo é uma captura real, feita rodando o RTK de verdade nesta sessão, não um exemplo inventado.
+This is **not using embeddings or any model** — it's pure text/string manipulation (regex, line counting, parsing a known format). The regex classifies text into blocks and decides, per block: keep verbatim, drop entirely, or replace with a fixed phrase — it never rewrites/optimizes the text that survives. "Token" here is always the `characters/4` estimate (section 5.4.1). Every example is a real capture, taken by running the actual RTK during this project's research phase, not an invented example.
 
-**a) Curto-circuito por reconhecimento de padrão** (`git status`, `pytest`) — reconhece a saída inteira como pertencente a um padrão conhecido e substitui tudo por uma frase fixa.
+**a) Short-circuit by pattern recognition** (`git status`, `pytest`) — recognizes the whole output as belonging to a known pattern and replaces all of it with a fixed phrase.
 
 ```
-ENTRADA (git status, 174 bytes ≈ 44 tokens):
+INPUT (git status, 174 bytes ≈ 44 tokens):
   On branch feat/backlog-p0-p1-docs-project-ratelimit
   Your branch is up to date with 'origin/...'.
 
   nothing to commit, working tree clean
 
-SAÍDA (27 bytes ≈ 7 tokens, -84,48%):
+OUTPUT (27 bytes ≈ 7 tokens, -84.48%):
   clean — nothing to commit
 ```
 
 ```
-ENTRADA (pytest com erro de import, 3.245 bytes ≈ 811 tokens):
+INPUT (pytest with an import error, 3,245 bytes ≈ 811 tokens):
   ============================= test session starts ==============================
   collected 0 items / 4 errors
   ==================================== ERRORS ====================================
   ____________________ ERROR collecting tests/test_client.py _____________________
   E   ModuleNotFoundError: No module named 'bastion_control_plane'
-  [mais 3 erros parecidos]
+  [3 more similar errors]
 
-SAÍDA (26 bytes ≈ 7 tokens, -99,2%):
+OUTPUT (26 bytes ≈ 7 tokens, -99.2%):
   Pytest: No tests collected
 ```
 
-**Achado importante**: no caso do pytest, o RTK reconhece "0 items / N errors" e troca por frase genérica — mas **perde o motivo real do erro**. Não é falsificação (regra 5), mas é perda de informação acionável. Corolário já incorporado na regra de negócio 5.
+**Important finding**: for pytest, RTK recognizes "0 items / N errors" and swaps it for a generic phrase — but **loses the real reason for the error**. It's not falsification (rule 5), but it is a loss of actionable information. Corollary already baked into business rule 5.
 
-**b) Truncamento estrutural com corte duro** (`git log`) — processa item por item (delimitado por `commit <hash>`), mantém o primeiro quase completo e descarta o resto com uma contagem.
+**b) Structural truncation with a hard cutoff** (`git log`) — processes item by item (delimited by `commit <hash>`), keeps the first one almost complete and drops the rest with a count.
 
 ```
-ENTRADA (git log -30, 39.559 bytes ≈ 9.890 tokens, 30 commits completos):
+INPUT (git log -30, 39,559 bytes ≈ 9,890 tokens, 30 complete commits):
   commit cb93a3bd721a85b25c113413c8ed93b099bcc7f8
   Author: Mkmuniz <mikaelmuniz2001@gmail.com>
   Date:   Sat Jul 25 22:42:21 2026 -0300
@@ -176,9 +176,9 @@ ENTRADA (git log -30, 39.559 bytes ≈ 9.890 tokens, 30 commits completos):
       Never ran cargo fmt this session, only build/clippy/test -- the CI
       fmt-check gate caught real drift across committee.rs...
   commit e1fe7741ff3ba766ffb5bad8b039cd702d2f62e5
-  ... [mais 28 commits completos]
+  ... [28 more complete commits]
 
-SAÍDA (203 bytes ≈ 51 tokens, -99,49%):
+OUTPUT (203 bytes ≈ 51 tokens, -99.49%):
   commit cb93a3bd721a85b25c113413c8ed93b099bcc7f8
     Author: Mkmuniz <mikaelmuniz2001@gmail.com>
     Date:   Sat Jul 25 22:42:21 2026 -0300
@@ -186,12 +186,12 @@ SAÍDA (203 bytes ≈ 51 tokens, -99,49%):
     [+592 lines omitted]
 ```
 
-Economia real e sem perda grave (corpo de commit raramente é essencial), mas os outros 29 commits somem por completo — sem "recuperar sob demanda" isso é informação perdida (por isso a regra de negócio 4 exige disclosure progressivo). **Nota**: `bornes/prosa` (seção 7) melhora esse caso especificamente — resume o corpo em 1 frase em vez de descartar.
+Real savings with no serious loss (a commit body is rarely essential), but the other 29 commits disappear entirely — without "recover on demand" that's lost information (which is why business rule 4 requires progressive disclosure). **Note**: `bornes/prosa` (section 7) improves this specific case — summarizes the body into 1 sentence instead of dropping it.
 
-**c) Parsing estrutural de verdade** (`git diff`) — único padrão que entende o formato de verdade (headers `diff --git`, hunks `@@`) em vez de reconhecer-tudo ou cortar-por-item. Remove metadata do commit, mantém os hunks quase intactos:
+**c) True structural parsing** (`git diff`) — the only pattern that understands the real format (`diff --git` headers, `@@` hunks) instead of recognize-everything or cut-by-item. Strips commit metadata, keeps the hunks nearly intact:
 
 ```
-SAÍDA (9.142 bytes ≈ 2.286 tokens, -71,43% — de 32.001 bytes ≈ 8.000 tokens):
+OUTPUT (9,142 bytes ≈ 2,286 tokens, -71.43% — from 32,001 bytes ≈ 8,000 tokens):
   src/agent/committee.rs
     @@ -39,7 +39,7 @@ use bastion_memory::{BeliefDraft, Outcome, PrivacyTier, SharedMemory};
     -    CallConfig, ConveneReason, Message, MessageContent, ResponseMode, RouterDecision, Role,
@@ -200,15 +200,15 @@ SAÍDA (9.142 bytes ≈ 2.286 tokens, -71,43% — de 32.001 bytes ≈ 8.000 toke
     ...
 ```
 
-As linhas `+`/`-` que sobrevivem ficam **exatamente iguais ao original** — por isso economiza menos (71% vs 99% dos outros exemplos): preserva conteúdo real em vez de substituir por frase.
+The `+`/`-` lines that survive stay **exactly identical to the original** — which is why it saves less (71% vs. 99% for the other examples): it preserves real content instead of replacing it with a phrase.
 
-**d) Sobrecarga de moldura fixa (os casos que pioram)** (`summary`, `find`) — mesmo mecanismo do item (a), mas a moldura é maior que o conteúdo quando a entrada já é pequena:
+**d) Fixed-frame overhead (the cases that got worse)** (`summary`, `find`) — same mechanism as item (a), but the frame is bigger than the content when the input is already small:
 
 ```
-ENTRADA (find . -name build.rs, 11 bytes ≈ 3 tokens):
+INPUT (find . -name build.rs, 11 bytes ≈ 3 tokens):
   ./build.rs
 
-SAÍDA "summary" (98 bytes ≈ 25 tokens, CUSTOU +22 tokens):
+OUTPUT "summary" (98 bytes ≈ 25 tokens, COST +22 tokens):
   [ok] Command: find . -name build.rs
      2 lines of output
 
@@ -216,198 +216,198 @@ SAÍDA "summary" (98 bytes ≈ 25 tokens, CUSTOU +22 tokens):
      [ok] Build successful
 ```
 
-A moldura (texto fixo) é a mesma independente do tamanho da entrada. Coberto pela regra de negócio 6.
+The frame (fixed text) is the same regardless of input size. Covered by business rule 6.
 
-#### 5.4.1 De onde vem o "bytes/4 ≈ tokens"
+#### 5.4.1 Where "bytes/4 ≈ tokens" comes from
 
-Tokenizers reais usam BPE (Byte Pair Encoding) — agrupam sequências de bytes frequentes num único token, aprendido estatisticamente. **~4 caracteres por token** é um consenso aproximado pra texto em inglês (menos preciso pra código-fonte, JSON denso, ou português acentuado — tende a subestimar levemente). Mesma aproximação que RTK e snip usam — seguimos por consistência de comparação, não por precisão.
+Real tokenizers use BPE (Byte Pair Encoding) — they group frequent byte sequences into a single token, learned statistically. **~4 characters per token** is a rough consensus for English text (less accurate for source code, dense JSON, or accented Portuguese — it tends to slightly underestimate). Same approximation RTK and snip use — we follow it for comparison consistency, not for precision.
 
-### 5.5 Técnicas específicas pra JSON/API (`curl`, `gh`, `aws`, `gcloud`, resultado de ferramenta MCP)
+### 5.5 Techniques specific to JSON/APIs (`curl`, `gh`, `aws`, `gcloud`, MCP tool result)
 
-Quando o comando é uma chamada de API, o conteúdo tipicamente é JSON — pede técnicas diferentes de texto/log:
+When the command is an API call, the content is typically JSON — that calls for different techniques than text/log:
 
-| Técnica | O que resolve |
+| Technique | What it solves |
 |---|---|
-| Compactação colunar de array-de-objetos | Chaves repetidas em cada item de um array (`{"id":1,...},{"id":2,...}`) custam token toda vez. Reformatar como colunas economiza mais que só compactar espaço em branco — é por isso que `rtk json` rendeu só 9,96% no nosso teste (seção 10), o mais fraco entre os "bons" |
-| Poda de campo por relevância | Mesma filosofia do "estado default" do `git status` — a maioria dos campos de resposta de API (paginação, links HATEOAS, timestamps redundantes, IDs internos) não importa pro agente |
-| Corte de valor de string longo | Trunca o VALOR de um campo específico (descrição longa, blob base64), mantendo a estrutura do objeto |
-| Limite de profundidade | Evita estruturas aninhadas repetitivas (RTK já tem isso, `--depth`, padrão 5) |
+| Columnar compaction of array-of-objects | Repeated keys in every array item (`{"id":1,...},{"id":2,...}`) cost tokens every time. Reformatting as columns saves more than just compacting whitespace — which is why `rtk json` only scored 9.96% in our test (section 10), the weakest among the "good" ones |
+| Field pruning by relevance | Same philosophy as `git status`'s "default state" — most API response fields (pagination, HATEOAS links, redundant timestamps, internal IDs) don't matter to the agent |
+| Long string value truncation | Truncates the VALUE of a specific field (a long description, a base64 blob), keeping the object's structure |
+| Depth limit | Avoids repetitive nested structures (RTK already has this, `--depth`, default 5) |
 
-Todas determinísticas, sem modelo externo. Compartilhadas com `bornes/mcp` (seção 6.2), já que resultado de ferramenta MCP também costuma ser JSON.
+All deterministic, no external model. Shared with `bornes/mcp` (section 6.2), since MCP tool results also tend to be JSON.
 
 ---
 
-## 6. `bornes/mcp` — especificação
+## 6. `bornes/mcp` — specification
 
-### 6.1 Mecanismo: proxy de protocolo com lazy-loading de schema
+### 6.1 Mechanism: protocol proxy with schema lazy-loading
 
-Inspirado no mecanismo do `atlassian-labs/mcp-compressor` (open-source, Rust) — **reimplementação própria**, não wrapper/dependência dele, pra manter controle e licença próprios (aceitando o esforço de engenharia maior: é um protocolo maduro — JSON-RPC sobre stdio/HTTP, streaming, potencialmente OAuth — que temos que resolver por conta).
+Inspired by the mechanism in `atlassian-labs/mcp-compressor` (open source, Rust) — **our own reimplementation**, not a wrapper/dependency on it, to keep our own control and license (accepting the larger engineering effort: it's a mature protocol — JSON-RPC over stdio/HTTP, streaming, potentially OAuth — that we have to handle ourselves).
 
 ```
-1. Cliente MCP (Claude Code) pede lista de ferramentas
-   → bornes/mcp responde só com wrappers genéricos (nome, sem schema completo)
-2. Modelo decide que precisa da ferramenta X
-   → chama get_tool_schema("X") → só aí bornes/mcp busca e devolve o schema completo no servidor real
-3. Modelo invoca a ferramenta de verdade
-   → bornes/mcp repassa a chamada pro servidor real
+1. MCP client (Claude Code) asks for the tool list
+   → bornes/mcp responds with only generic wrappers (name, no full schema)
+2. The model decides it needs tool X
+   → calls get_tool_schema("X") → only then does bornes/mcp fetch and return the full schema from the real server
+3. The model calls the real tool
+   → bornes/mcp forwards the call to the real server
 ```
 
-### 6.2 Compressão de resultado de chamada (escopo adicionado, 2026-07-26)
+### 6.2 Call result compression (scope added 2026-07-26)
 
-Além do lazy-loading de schema, `bornes/mcp` comprime o **resultado** da chamada antes de devolver — usando os mesmos filtros de JSON da seção 5.5 (resultado de ferramenta MCP costuma ser JSON).
+Besides schema lazy-loading, `bornes/mcp` compresses the call's **result** before returning it — using the same JSON filters from section 5.5 (MCP tool results tend to be JSON).
 
-**Achado que valida essa decisão**: investigamos se o hook `PostToolUse.updatedToolOutput` resolveria isso de forma mais simples, sem proxy. Não dá — é restrito a ferramentas MCP por design, e mesmo assim nunca dispara no Windows+VSCode (seção 2). Como `bornes/mcp` é um proxy de verdade (vê a chamada e o resultado nativamente, direto no protocolo), essa limitação do hook não o afeta — só ferramentas MCP ficam cobertas; ferramentas nativas do Claude Code (WebFetch, WebSearch) continuam fora de alcance, sem workaround conhecido, a menos que o usuário troque a ferramenta nativa por um servidor MCP equivalente.
-
----
-
-## 7. `bornes/prosa` — especificação
-
-### 7.1 Mecanismo: TF-IDF extrativo
-
-Inspirado em `Huzaifa785/context-compressor`, que oferece 4 estratégias (extrativa via TF-IDF, abstrativa via transformer BART/T5, semântica via embeddings+k-means, híbrida). **Decisão explícita: só a estratégia extrativa entra.** Pontua frases por frequência/importância estatística (TF-IDF) e mantém só as de maior pontuação — sem modelo treinado, sem embedding, puro cálculo de frequência de palavra, implementável em Rust puro. As estratégias abstrativa/semântica/híbrida foram descartadas por reintroduzirem a dependência de modelo externo que o resto do Elagix evita (mesmo trade-off da "Compressão via modelo pequeno" descartada pra `bornes/comandos`).
-
-Não tem mecanismo de interceptação próprio — é uma função chamada pelos outros dois `bornes` quando encontram um trecho de prosa.
-
-### 7.2 Usos concretos
-
-1. **Corpo de mensagem de commit** — chamado por `bornes/comandos` ao processar `git log`/`git show`. Hoje o RTK descarta o corpo inteiro (seção 5.4b); `bornes/prosa` resume em 1 frase em vez de apagar, preservando mais informação pelo mesmo custo aproximado de token. Implementado (M7, 2026-07-26): `git log` mostra `resumo: <frase>` no lugar de descartar o corpo do primeiro commit; `git show` ganhou de volta até o hash+assunto do commit (que antes sumiam por completo, junto do corpo — perda que ninguém tinha notado até essa revisão) mais o mesmo resumo de corpo.
-2. **`/compress`** — **decisão revista durante a implementação do M7 (2026-07-26): NÃO vira uma chamada a `bornes/prosa`.** A ideia original (specs anteriores a esta revisão) presumia que era só trocar "compressão manual feita por mim" por uma chamada determinística. Reexaminando o `~/.claude/commands/compress.md` real na hora de fazer a integração, ficou claro que é uma tarefa diferente da que TF-IDF extrativo resolve: um rascunho de prompt precisa **cortar redundância dentro de cada frase** preservando 100% do conteúdo substantivo (números, nomes, restrições) — TF-IDF extrativo só sabe **descartar frases inteiras**, o que arrisca exatamente o que a regra de negócio 5 proíbe (perder um número/nome/restrição que estava numa frase de score baixo mas era essencial). Bom pra corpo de commit (perder uma frase secundária de contexto é aceitável); ruim pra prompt denso em restrições. `/compress` continua sendo julgamento semântico feito por mim, deliberadamente — não é uma lacuna a fechar depois, é a ferramenta certa pro problema. `bornes/prosa` ganhou um utilitário standalone equivalente (`elagix compress`, lê stdin, resume, imprime) pra quem quiser aplicar a técnica extrativa em prosa que tolera esse tipo de perda (corpo de commit fora do fluxo do `git log`, trecho de documentação longo etc.) — só não é o mecanismo por trás do slash command do usuário.
-
-### 7.3 O que NÃO é automático (limite conhecido, não é bug)
-
-Compressão de prompt do usuário **antes de chegar no modelo** não pode ser automática — investigamos a fundo (seção 2): não existe hook (`UserPromptSubmit`) que substitua texto de prompt em nenhuma plataforma, e um proxy externo (rede ou terminal) traria fragilidade e risco de alterar silenciosamente o que o usuário disse, o que viola o espírito da regra de negócio 5. `/compress`/`/c` continuam sendo ação explícita do usuário, por decisão de design — não é algo a "resolver" depois.
-
-Duas razões independentes pra isso, não só uma (achado do M7, 2026-07-26, ver §7.2 item 2): mesmo se um hook de substituição de prompt existisse, `/compress` continuaria sendo julgamento semântico frase-a-frase (o que cortar preservando 100% do conteúdo substantivo), não seleção de frases inteiras — a técnica de `bornes/prosa` (TF-IDF extrativo) resolve um problema diferente do que `/compress` precisa.
+**Finding that validates this decision**: we looked into whether the `PostToolUse.updatedToolOutput` hook would solve this more simply, without a proxy. It can't — it's restricted to MCP tools by design, and even then it never fires on Windows+VSCode (section 2). Since `bornes/mcp` is a real proxy (it natively sees the call and the result, directly in the protocol), that hook limitation doesn't affect it — only MCP tools are covered; Claude Code's native tools (WebFetch, WebSearch) remain out of reach, with no known workaround, unless the user swaps the native tool for an equivalent MCP server.
 
 ---
 
-## 8. Reversibilidade, cache e deduplicação (cross-cutting — aplica aos 3 `bornes`)
+## 7. `bornes/prosa` — specification
 
-As três técnicas desta seção compartilham a mesma peça de infraestrutura: um **armazém local endereçado por hash** (conteúdo → hash → conteúdo original recuperável). Disclosure progressivo usa esse armazém pra reversibilidade; cache usa pra evitar reprocessar; dedup usa pra evitar reenviar o que já foi mostrado. Uma implementação, três usos.
+### 7.1 Mechanism: extractive TF-IDF
 
-### 8.1 Disclosure progressivo (reversibilidade)
+Inspired by `Huzaifa785/context-compressor`, which offers 4 strategies (extractive via TF-IDF, abstractive via a BART/T5 transformer, semantic via embeddings+k-means, hybrid). **Explicit decision: only the extractive strategy makes it in.** Scores sentences by statistical frequency/importance (TF-IDF) and keeps only the highest-scoring ones — no trained model, no embeddings, pure word-frequency computation, implementable in pure Rust. The abstractive/semantic/hybrid strategies were rejected because they'd reintroduce the external-model dependency the rest of Elagix avoids (the same trade-off behind the rejected "small-model compression" idea for `bornes/comandos`).
 
-Refinado a partir do mecanismo de lazy-loading do `mcp-compressor` (seção 6.1), generalizado pra resultado de comando/ferramenta, não só schema:
+Has no interception mechanism of its own — it's a function called by the other two `bornes` when they encounter a piece of prose.
 
-Em vez de sempre devolver o resultado comprimido inteiro, devolve por padrão só uma **manchete mínima** (ex: `"3 falhas — elagix show a3f9c pra detalhe"`) e só paga o custo de tokens do conteúdo completo se o agente pedir explicitamente. Precedente real e validado — é exatamente o padrão que o `mcp-compressor` já usa em produção pra schema de ferramenta (`get_tool_schema` sob demanda em vez de mandar tudo de cara).
+### 7.2 Concrete uses
 
-Substitui as duas ideias mais simples que consideramos antes (tee em caso de falha do RTK; retrieval universal sob demanda do Headroom `CCR`) — cobre os mesmos casos e ainda economiza tokens no caminho feliz. Trade-off: uma ida-e-volta extra quando o agente realmente precisa do detalhe completo.
+1. **Commit message body** — called by `bornes/comandos` while processing `git log`/`git show`. Today RTK drops the whole body (section 5.4b); `bornes/prosa` summarizes it into 1 sentence instead of erasing it, preserving more information for roughly the same token cost. Implemented (M7, 2026-07-26): `git log` shows `summary: <sentence>` instead of dropping the first commit's body; `git show` got back at least the commit's hash+subject (which used to disappear entirely, along with the body — a loss nobody had noticed until this revision) plus the same body summary.
+2. **`/compress`** — **decision revised during M7's implementation (2026-07-26): it does NOT turn into a call to `bornes/prosa`.** The original idea (specs prior to this revision) assumed it was just a matter of swapping "manual compression done by me" for a deterministic call. Re-examining the real `~/.claude/commands/compress.md` while working on the integration made it clear this is a different task than what extractive TF-IDF solves: a prompt draft needs to **cut redundancy within each sentence** while preserving 100% of the substantive content (numbers, names, constraints) — extractive TF-IDF can only **drop whole sentences**, which risks exactly what business rule 5 forbids (losing a number/name/constraint that was in a low-scoring but essential sentence). Good for a commit body (losing a secondary context sentence is acceptable); bad for a prompt dense with constraints. `/compress` remains semantic judgment done by me, deliberately — it's not a gap to close later, it's the right tool for the problem. `bornes/prosa` gained an equivalent standalone utility (`elagix compress`, reads stdin, summarizes, prints) for anyone who wants to apply the extractive technique to prose that can tolerate that kind of loss (a commit body outside the `git log` flow, a long documentation excerpt, etc.) — it's just not the mechanism behind the user's slash command.
 
-### 8.2 Cache de resultado (evita reprocessar, não só reenviar)
+### 7.3 What is NOT automatic (a known limit, not a bug)
 
-Pergunta de partida: se o mesmo comando roda de novo com o mesmo estado relevante, por que recalcular/refiltrar do zero? A chave é a **estratégia de invalidação**, que muda por tipo de conteúdo — cachear errado (servir resultado desatualizado) violaria a regra de negócio 5 (nunca falsificar resultado), então cada categoria abaixo só cacheia quando dá pra provar que nada mudou:
+Compressing the user's prompt **before it reaches the model** can't be automatic — we investigated this thoroughly (section 2): there's no hook (`UserPromptSubmit`) that replaces prompt text on any platform, and an external proxy (network or terminal) would introduce fragility and the risk of silently altering what the user said, which violates the spirit of business rule 5. `/compress`/`/c` remain an explicit user action, by design — it's not something to "solve" later.
 
-| Tipo de comando | Chave de cache | Por que é seguro |
+Two independent reasons for this, not just one (finding from M7, 2026-07-26, see §7.2 item 2): even if a prompt-replacement hook existed, `/compress` would still require sentence-by-sentence semantic judgment (what to cut while preserving 100% of substantive content), not whole-sentence selection — `bornes/prosa`'s technique (extractive TF-IDF) solves a different problem than what `/compress` needs.
+
+---
+
+## 8. Reversibility, cache, and deduplication (cross-cutting — applies to all 3 `bornes`)
+
+The three techniques in this section share the same piece of infrastructure: a **local content-addressed store** (content → hash → recoverable original content). Progressive disclosure uses this store for reversibility; cache uses it to avoid reprocessing; dedup uses it to avoid resending what's already been shown.
+
+### 8.1 Progressive disclosure (reversibility)
+
+Refined from `mcp-compressor`'s lazy-loading mechanism (section 6.1), generalized to a command/tool result, not just a schema:
+
+Instead of always returning the entire compressed result, it returns, by default, just a **minimal headline** (e.g. `"3 failures — elagix show a3f9c for detail"`) and only pays the token cost of the full content if the agent explicitly asks for it. A real, validated precedent — it's exactly the pattern `mcp-compressor` already uses in production for tool schema (`get_tool_schema` on demand instead of sending everything upfront).
+
+Replaces the two simpler ideas we considered earlier (a tee on RTK failure; Headroom's `CCR` universal on-demand retrieval) — covers the same cases and still saves tokens on the happy path. Trade-off: one extra round trip when the agent genuinely needs the full detail.
+
+### 8.2 Result cache (avoids reprocessing, not just resending)
+
+Starting question: if the same command runs again with the same relevant state, why recompute/refilter from scratch? The key is the **invalidation strategy**, which changes per content type — caching incorrectly (serving a stale result) would violate business rule 5 (never falsify a result), so each category below only caches when it can prove nothing changed:
+
+| Command type | Cache key | Why it's safe |
 |---|---|---|
-| Git histórico imutável (`git show <sha>`, `git log` até um commit fixo) | comando + SHA resolvido | Uma vez computado, o resultado de um commit específico **nunca muda** — cache pra sempre, sem TTL |
-| Git dependente de working tree (`git status`, `git diff` sem commit fixo) | comando + hash do `git diff --stat` ou mtime de `.git/index` | Invalida sozinho assim que algo no working tree muda — checagem barata antes de decidir se reusa o cache |
-| Leitura de arquivo (`read`, `smart`) | caminho + mtime + tamanho (ou hash de conteúdo, se mtime não for confiável) | Idêntico ao que `make`/`ccache`/qualquer build system usa pra memoização — técnica comprovada |
-| Chamada de ferramenta MCP | servidor + ferramenta + argumentos | Cache com TTL curto por padrão (servidor pode ter estado que muda sem aviso) — sem garantia de imutabilidade como o git |
-| Build/teste (`cargo build`, `cargo test`) | **não cacheado por padrão** | Entradas ocultas demais (variável de ambiente, outros arquivos, estado de rede) pra garantir invalidação correta — risco de violar a regra 5 é maior que o ganho |
+| Immutable git history (`git show <sha>`, `git log` up to a fixed commit) | command + resolved SHA | Once computed, a specific commit's result **never changes** — cache forever, no TTL |
+| Working-tree-dependent git (`git status`, `git diff` with no fixed commit) | command + hash of `git diff --stat` or `.git/index` mtime | Invalidates on its own the moment something in the working tree changes — a cheap check before deciding to reuse the cache |
+| File read (`read`, `smart`) | path + mtime + size (or content hash, if mtime isn't reliable) | Identical to what `make`/`ccache`/any build system uses for memoization — a proven technique |
+| MCP tool call | server + tool + arguments | Short TTL cache by default (the server may have state that changes without notice) — no immutability guarantee like git's |
+| Build/test (`cargo build`, `cargo test`) | **not cached by default** | Too many hidden inputs (environment variable, other files, network state) to guarantee correct invalidation — the risk of violating rule 5 outweighs the gain |
 
-**Importante — isolar o que este mecanismo entrega**: cache (8.2) sozinho **não economiza nenhum token**. Ele evita rodar o comando real e o pipeline de filtro de novo — puramente tempo de execução local. O texto comprimido resultante é mandado pro modelo do mesmo jeito, venha ele de cache ou de execução fresca; o modelo não distingue os dois casos. Quem economiza token é a deduplicação (8.3), separadamente. As duas juntas resolvem os dois pedidos que motivaram esta seção (2026-07-26): token vem de 8.3, performance de rodar comando vem de 8.2 — mesmo armazém, mecanismos distintos, nenhum dos dois sozinho entrega os dois.
+**Important — isolating what this mechanism delivers**: cache (8.2) alone **saves zero tokens**. It avoids re-running the real command and the filter pipeline — purely local execution time. The resulting compressed text gets sent to the model the same way regardless of whether it came from cache or a fresh run; the model can't tell the two cases apart. What saves tokens is deduplication (8.3), separately. Together the two answer the two requests that motivated this section (2026-07-26): tokens come from 8.3, command-execution performance comes from 8.2 — same store, distinct mechanisms, neither one alone delivers both.
 
-### 8.3 Deduplicação entre chamadas na mesma sessão (evita reenviar — é aqui que o token cai)
+### 8.3 Deduplication across calls in the same session (avoids resending — this is where tokens actually drop)
 
-Complementar ao cache: mesmo que o comando precise rodar de novo (ou já tenha rodado uma vez só), se o **conteúdo comprimido resultante** for hash-idêntico a algo já mostrado nesta sessão, devolve uma referência curta em vez do texto inteiro de novo — ex: `"igual ao git status de a3f9c, sem mudança desde então"`. Usa o mesmo armazém do disclosure progressivo (8.1): o hash já existe, só precisa checar se ele já apareceu antes de decidir mandar o conteúdo completo de novo.
+Complementary to the cache: even if the command needs to run again (or has only run once), if the **resulting compressed content** is hash-identical to something already shown this session, it returns a short reference instead of the full text again — e.g. `"same as the git status from a3f9c, unchanged since then"`. Uses the same store as progressive disclosure (8.1): the hash already exists, it just needs to check whether it's appeared before to decide whether to send the full content again.
 
-Isso cobre um padrão comum e caro em sessões longas de agente: rodar `git status` ou `ls` repetidamente pra "conferir o estado atual" — se nada mudou desde a última vez, a resposta devia custar quase nada. **Esta é a única das duas técnicas (8.2/8.3) que reduz token de fato** — 8.2 sozinha não reduziria nada.
+This covers a common, expensive pattern in long agent sessions: running `git status` or `ls` repeatedly to "check the current state" — if nothing changed since last time, the answer should cost almost nothing. **This is the only one of the two techniques (8.2/8.3) that actually reduces tokens** — 8.2 alone wouldn't reduce anything.
 
-**Limitação conhecida do v1 (2026-07-26)**: "mesma sessão" não tem um identificador confiável disponível pro shim — cada chamada é um processo novo, e o Claude Code não expõe um id de sessão estável no ambiente do processo filho. Aproximado por uma **janela deslizante de tempo** (`ELAGIX_DEDUP_WINDOW_SECS`, default 1.800s/30min) em vez de um limite de sessão de verdade: se o mesmo conteúdo (hash idêntico) já apareceu dentro da janela, conta como duplicata. Trade-off honesto — pode deduplicar entre duas sessões próximas no tempo, ou deixar de deduplicar dentro de uma sessão muito longa com gaps grandes. Só aplica a saídas acima de um tamanho mínimo (evita gastar uma linha de referência pra economizar uma dezena de bytes).
+**Known v1 limitation (2026-07-26)**: "same session" has no reliable identifier available to the shim — every call is a new process, and Claude Code doesn't expose a stable session id in the child process's environment. Approximated with a **sliding time window** (`ELAGIX_DEDUP_WINDOW_SECS`, default 1,800s/30min) instead of a real session boundary: if the same content (identical hash) already appeared within the window, it counts as a duplicate. An honest trade-off — it may deduplicate across two sessions close in time, or fail to deduplicate within one very long session with big gaps. Only applies to outputs above a minimum size (to avoid spending a reference line to save a handful of bytes).
 
-### 8.4 Compatibilidade com cache de prompt do provedor (Anthropic)
+### 8.4 Compatibility with the provider's prompt cache (Anthropic)
 
-Diferente das três técnicas acima (que são do Elagix), esta é sobre não **atrapalhar** um mecanismo que já existe fora do nosso controle: a Anthropic cacheia prefixos de prompt repetidos entre chamadas de API (`cache_control`), o que já economiza tokens de reprocessamento pra tudo que fica estável entre turnos (system prompt, definição de ferramenta, histórico). Esse cache só funciona se o prefixo for **byte-a-byte idêntico** entre chamadas.
+Unlike the three techniques above (which are Elagix's own), this one is about not **interfering** with a mechanism that already exists outside our control: Anthropic caches repeated prompt prefixes across API calls (`cache_control`), which already saves reprocessing tokens for everything that stays stable between turns (system prompt, tool definitions, history). That cache only works if the prefix is **byte-for-byte identical** across calls.
 
-**Requisito de design derivado**: a saída do Elagix tem que ser **determinística** — mesmo input sempre produz o mesmo output, byte a byte (sem timestamp na moldura, sem ordenação não-determinística, sem qualquer variação cosmética entre execuções idênticas). Isso já é consequência natural das regras de negócio 5 e 6 (nunca inferir, nunca inflar), mas vale deixar explícito: **não introduzir não-determinismo em nenhuma camada** — quebraria tanto o cache do Elagix (8.2) quanto o cache de prompt do provedor.
+**Derived design requirement**: Elagix's output has to be **deterministic** — the same input always produces the same output, byte for byte (no timestamp in the frame, no non-deterministic ordering, no cosmetic variation whatsoever between identical runs). This is already a natural consequence of business rules 5 and 6 (never infer, never inflate), but it's worth stating explicitly: **never introduce non-determinism in any layer** — it would break both Elagix's own cache (8.2) and the provider's prompt cache.
 
-### 8.5 Custo de recurso do armazém (RAM, disco, latência)
+### 8.5 Store resource cost (RAM, disk, latency)
 
-Análise feita em 2026-07-26, respondendo à pergunta "qual o impacto de salvar isso em disco":
+Analysis done on 2026-07-26, answering the question "what's the impact of saving this to disk":
 
-- **RAM: desprezível por design**, desde que o armazém seja layout arquivo-por-hash (mesmo padrão do `.git/objects/`, ou do cache do npm/cargo) em vez de um índice carregado inteiro em memória. Cada chamada do shim lê só o arquivo específico do hash que precisa — sem banco de dados residente, sem índice em RAM. Cache de página do SO pode manter entradas quentes na memória por conta própria, mas isso é ganho de performance liberado automaticamente sob pressão de memória, não um custo que o Elagix controla ou precisa gerenciar.
-- **Disco: real, cresce sem teto se não houver limpeza.** Estimativa grosseira pra uso normal (~100 comandos cacheáveis/dia, poucos KB cada — nossos próprios exemplos ficaram entre 27B e 9.142B de saída comprimida): ~100-500KB/dia, ~3-15MB/mês sem eviction nenhuma. Modesto, mas indefinido — precisa de política de limpeza desde o v1 (ver decisão pendente abaixo), não é algo pra adiar pra depois de já estar crescendo em produção.
-- **Latência: pequena em termos absolutos, mas proporcionalmente relevante pro shim em si** — ler/escrever um arquivo pequeno soma frações de ms a poucos ms de I/O, o que é notável comparado ao startup puro do binário Rust (~1,5ms, seção 9), mas desprezível comparado ao comando real que ele embrulha (`git status`/`cargo build` já levam ordens de grandeza mais que isso sozinhos).
+- **RAM: negligible by design**, as long as the store uses a file-per-hash layout (the same pattern as `.git/objects/`, or npm/cargo's cache) instead of an index fully loaded into memory. Every shim call only reads the one file for the hash it needs — no resident database, no in-RAM index. The OS's page cache may keep hot entries in memory on its own, but that's a performance gain released automatically under memory pressure, not a cost Elagix controls or needs to manage.
+- **Disk: real, grows unbounded without cleanup.** Rough estimate for normal use (~100 cacheable commands/day, a few KB each — our own examples ranged from 27B to 9,142B of compressed output): ~100-500KB/day, ~3-15MB/month with no eviction at all. Modest, but unbounded — needs a cleanup policy from v1 (see decision below), not something to defer until it's already growing in production.
+- **Latency: small in absolute terms, but proportionally relevant to the shim itself** — reading/writing a small file adds fractions of a ms to a few ms of I/O, which is noticeable compared to the Rust binary's own startup (~1.5ms, section 9), but negligible compared to the real command it wraps (`git status`/`cargo build` already take orders of magnitude longer on their own).
 
-## 9. Stack e ambiente de implementação
+## 9. Stack and implementation environment
 
-**Decidido, 2026-07-26: Rust**, pros três `bornes`.
+**Decided, 2026-07-26: Rust**, for all three `bornes`.
 
-| Stack | Instalação cross-platform | Velocidade de desenvolvimento | Performance/startup |
+| Stack | Cross-platform install | Development speed | Performance/startup |
 |---|---|---|---|
-| **Rust (escolhido)** | Difícil sem CI multi-target (é o que trava o RTK hoje) — **atualização M8 (2026-07-26): Windows cross-compilou de graça** via `mingw-w64` (nenhuma dependência do projeto usa C/FFI), rodado e validado de verdade no PowerShell nativo. **macOS confirmou a fricção prevista**: falha de link sem SDK/Xcode (`cc: unrecognized -arch/-mmacosx-version-min`), deferido até haver Mac real ou CI com runner macOS (ver MILESTONES.md M8) | Lenta (ownership/borrow checker) | Excelente |
-| Go | Cross-compile trivial, ainda binário nativo | Rápida a moderada | Excelente |
-| Node.js | `npm install -g` resolve PATH sozinho, mas depende de runtime instalado | Rápida | Ok (~50-100ms cold start) |
-| Python | `pipx`, mas histórico de dor de cabeça com PATH no Windows | Rápida | Ok/lenta |
-| Bun/Deno compilado | Binário único, mas embute runtime | Rápida (TypeScript) | Muito boa, mas não é binário "nativo puro" |
+| **Rust (chosen)** | Hard without multi-target CI (what's blocking RTK today) — **M8 update (2026-07-26): Windows cross-compiled for free** via `mingw-w64` (no project dependency uses C/FFI), run and validated for real on native PowerShell. **macOS confirmed the expected friction**: link failure with no SDK/Xcode (`cc: unrecognized -arch/-mmacosx-version-min`), deferred until there's a real Mac or a macOS CI runner (see MILESTONES.md M8) | Slow (ownership/borrow checker) | Excellent |
+| Go | Trivial cross-compile, still a native binary | Fast to moderate | Excellent |
+| Node.js | `npm install -g` resolves PATH on its own, but depends on an installed runtime | Fast | OK (~50-100ms cold start) |
+| Python | `pipx`, but a history of PATH headaches on Windows | Fast | OK/slow |
+| Compiled Bun/Deno | Single binary, but embeds the runtime | Fast (TypeScript) | Very good, but not a "pure native" binary |
 
-Benchmark próprio (3 protótipos idênticos em Rust/Go/Bun, 450 execuções, 5 fixtures reais capturadas de repositório real) confirmou Rust e Go essencialmente empatados em startup (~1,5ms vs ~2,3ms), Bun compilado ~13-15× mais lento que ambos mesmo como binário nativo (embute runtime). Rust escolhido apesar da fricção de cross-compile conhecida — a diferença de velocidade de desenvolvimento vs Go não pesou tanto quanto o teto de performance.
+Our own benchmark (3 identical prototypes in Rust/Go/Bun, 450 runs, 5 real fixtures captured from a real repository) confirmed Rust and Go essentially tied on startup (~1.5ms vs ~2.3ms), compiled Bun ~13-15× slower than both even as a native binary (it embeds a runtime). Rust was chosen despite the known cross-compile friction — the development-speed gap vs. Go didn't weigh as much as the performance ceiling.
 
 ---
 
-## 10. Achados empíricos que fundamentam essas decisões — auditoria dos 64 comandos do RTK (2026-07-26)
+## 10. Empirical findings behind these decisions — an audit of RTK's 64 commands (2026-07-26)
 
-Levantamos os 63 filtros TOML da cauda longa direto do repositório RTK (`src/filters/*.toml`, não documentados no `rtk --help` — só descobertos via `rtk rewrite "<comando>"`) e rodamos as 64 categorias testáveis neste ambiente uma vez cada, via dashboard próprio (`bench/dashboard.html`, aba "Ranking RTK"). Dados brutos em `bench/all_categories_results.json`.
+We pulled the 63 long-tail TOML filters directly from RTK's repository (`src/filters/*.toml`, undocumented in `rtk --help` — only discovered via `rtk rewrite "<command>"`) and ran the 64 testable categories once each in this environment, via our own dashboard (`bench/dashboard.html`, "RTK Ranking" tab). Raw data in `bench/all_categories_results.json`.
 
-### 10.1 Distribuição por faixa de redução
+### 10.1 Distribution by reduction range
 
-| Faixa | Contagem | Exemplos |
+| Range | Count | Examples |
 |---|---|---|
-| Ótimo (≥80%) | 16 | `cargo-test` 99,9%, `git-log` 99,5%, `pytest` 99,2%, `smart` 99,6%, `test-wrap` 99,7%, `rsync` 99,4%, `deps` 96,8%, `go-test` 96,8%, `pip-list` 93,9%, `dotnet-build` 93,5%, `format` 91,8%, `prettier` 92%, `ruff-check` 83,8%, `basedpyright` 83,6%, `git-status` 84,5%, `ps` 80,1% |
-| Bom (50-80%) | 6 | `cargo-clippy` 78,1%, `ls-la` 72,8%, `docker-images` 72,7%, `git-diff` 71,4%, `lint` 55,7%, `golangci-lint` 53,8% |
-| Pouco ou nada (0-50%) | 29 | 16 em **exatamente 0%** (passthrough total): `go-build`, `tsc`, `rg`, `docker-ps`, `read`, `du`, `make`, `ollama`, `jq`, `poetry`, `uv`, `mise`, `jj`, `nx`, `turbo`, `pre-commit`. Resto entre 1-42%: `grep`, `fd`, `tree`, `git-branch`, `wc`, `json`, `df`, `stat`, `shellcheck`, `yamllint`, `oxlint`, `terraform`, `ruff-format` |
-| Piorou (negativo) | 13 | `summary` -790,9%, `find` -254,6% (pipe mode!), `pnpm-install` -64,3%, `err` -34,3%, `cargo-build` -23,4%, `biome` -18,9%, `task` -6,7%, `gcc` -5,8%, `mypy` -5,3%, `just` -4,0%, `systemctl` -2,7%, `ty` -2,1%, `markdownlint` -0,02% |
+| Excellent (≥80%) | 16 | `cargo-test` 99.9%, `git-log` 99.5%, `pytest` 99.2%, `smart` 99.6%, `test-wrap` 99.7%, `rsync` 99.4%, `deps` 96.8%, `go-test` 96.8%, `pip-list` 93.9%, `dotnet-build` 93.5%, `format` 91.8%, `prettier` 92%, `ruff-check` 83.8%, `basedpyright` 83.6%, `git-status` 84.5%, `ps` 80.1% |
+| Good (50-80%) | 6 | `cargo-clippy` 78.1%, `ls-la` 72.8%, `docker-images` 72.7%, `git-diff` 71.4%, `lint` 55.7%, `golangci-lint` 53.8% |
+| Little or nothing (0-50%) | 29 | 16 at **exactly 0%** (total passthrough): `go-build`, `tsc`, `rg`, `docker-ps`, `read`, `du`, `make`, `ollama`, `jq`, `poetry`, `uv`, `mise`, `jj`, `nx`, `turbo`, `pre-commit`. The rest between 1-42%: `grep`, `fd`, `tree`, `git-branch`, `wc`, `json`, `df`, `stat`, `shellcheck`, `yamllint`, `oxlint`, `terraform`, `ruff-format` |
+| Got worse (negative) | 13 | `summary` -790.9%, `find` -254.6% (pipe mode!), `pnpm-install` -64.3%, `err` -34.3%, `cargo-build` -23.4%, `biome` -18.9%, `task` -6.7%, `gcc` -5.8%, `mypy` -5.3%, `just` -4.0%, `systemctl` -2.7%, `ty` -2.1%, `markdownlint` -0.02% |
 
-### 10.2 Tipos de comando onde o RTK não tem controle
+### 10.2 Types of commands where RTK has no control
 
-Os 42 comandos das duas faixas de baixo se agrupam em 4 padrões:
+The 42 commands in the two bottom ranges group into 4 patterns:
 
-1. **Sobrecarga de formatação fixa em resultados pequenos** (`summary`, `find`) — moldura de tamanho fixo custa mais que conteúdo minúsculo.
-2. **Anotações de sucesso aditivas, não substitutivas** (`err`, `cargo-build`, `task`, `systemctl`, `just`, `gcc`, `ty`, `mypy`) — sempre acrescenta confirmação em vez de reconhecer "já está mínimo".
-3. **Regras TOML são específicas a ruído conhecido, não entendem conteúdo** (16 em 0% exato + parte do 1-50%) — só ajudam quando o ruído específico aparece de fato.
-4. **Divergência de PATH/ambiente entre RTK e o shell** (`pnpm-install`) — bug de plumbing, não de estratégia.
+1. **Fixed-formatting overhead on small results** (`summary`, `find`) — a fixed-size frame costs more than tiny content.
+2. **Additive, not substitutive, success annotations** (`err`, `cargo-build`, `task`, `systemctl`, `just`, `gcc`, `ty`, `mypy`) — always adds a confirmation instead of recognizing "this is already minimal".
+3. **TOML rules are specific to known noise, they don't understand content** (16 at exactly 0% plus part of the 1-50% range) — only help when the specific noise actually shows up.
+4. **PATH/environment divergence between RTK and the shell** (`pnpm-install`) — a plumbing bug, not a strategy failure.
 
-**Achado que muda a leitura**: em tokens absolutos (não %), `biome` custou ~1.179 tokens A MAIS numa execução real (entrada de 6.250 tokens) enquanto `summary` — pior % (-790%) — custou só 22 tokens a mais (entrada de 3 tokens). Porcentagem sozinha esconde onde o prejuízo real está.
+**A finding that changes the reading**: in absolute tokens (not %), `biome` cost ~1,179 tokens MORE in a real run (a 6,250-token input) while `summary` — with the worse % (-790%) — only cost 22 tokens more (a 3-token input). Percentage alone hides where the real damage is.
 
-### 10.3 Metodologia adotada pro Elagix, por tipo de falha
+### 10.3 Methodology adopted for Elagix, by failure type
 
-| Tipo de falha | Metodologia adotada |
+| Failure type | Methodology adopted |
 |---|---|
-| 1. Sobrecarga fixa em resultados pequenos | Filtro que reestrutura só aplica a forma elaborada acima de um limiar de itens/tamanho — seção 5.2/5.3 |
-| 2. Anotação de sucesso aditiva | Regra de negócio 6 (seção 4): se a transformação não reduz, não aplica |
-| 3. Regras de ruído específico sem efeito no caso limpo | Aceito como teto arquitetural de qualquer sistema de regras — por isso duas camadas (seção 5.2), não pipeline único |
-| 4. Divergência de ambiente | Regra de negócio 7 (seção 4) |
+| 1. Fixed overhead on small results | The restructuring filter only applies its elaborate form above an item-count/size threshold — section 5.2/5.3 |
+| 2. Additive success annotation | Business rule 6 (section 4): if the transformation doesn't reduce, don't apply it |
+| 3. Specific-noise rules with no effect on the clean case | Accepted as the architectural ceiling of any rule-based system — hence two layers (section 5.2), not a single pipeline |
+| 4. Environment divergence | Business rule 7 (section 4) |
 
 ---
 
-## 11. Riscos e achados de pesquisa (contexto adicional)
+## 11. Risks and research findings (additional context)
 
-- **Epistemic failure** (arXiv 2607.13071): compressão/resumo pode transformar "processo morreu no meio" em "sucesso confirmado" pra sessões seguintes — origem das regras de negócio 1-3.
-- **Teto da poda estática** (arXiv 2604.04979 "Squeez", arXiv 2604.19572): regras fixas por comando são mensuravelmente piores que poda condicionada à tarefa/objetivo do agente — exigiria modelo treinado ou contexto de intenção repassado ao filtro. Não perseguido no v1 (contradiria a filosofia determinística), mas registrado como teto conhecido da abordagem de regras.
-- **Efeito de diluição**: redução de tokens na saída de um comando não equivale a redução no custo total da sessão (prompt, histórico e system prompt também contam) — cuidado ao definir metas/marketing de "economia".
-- **Taxas de eficiência reportadas por terceiros** (RTK: `cargo test` ~99%, `git diff` ~94%, `git log` ~86%, `git status` ~75%; Headroom: busca de código ~92%, debugging SRE ~92%, coding agent geral ~20%) — não auditadas por nós de forma independente (usamos nossa própria auditoria, seção 10, como referência principal). Todos usam `bytes/4` como estimador, nunca tokenizer real.
-
----
-
-## 12. Glossário rápido
-
-- **Borne**: módulo de interceptação autocontido (seção 3) — do francês, "catraca/terminal onde se insere a ficha".
-- **Camada A / Camada B**: parser dedicado vs pipeline de regras declarativo (seção 5.2).
-- **Disclosure progressivo**: devolver manchete mínima por padrão, detalhe completo só sob pedido (seção 8.1).
-- **Armazém endereçado por hash**: infraestrutura compartilhada por disclosure progressivo, cache e dedup — conteúdo vira hash, hash recupera conteúdo original (seção 8).
-- **`bytes/4`**: estimativa grosseira de tokens, não um tokenizer real (seção 5.4.1).
+- **Epistemic failure** (arXiv 2607.13071): compression/summarization can turn "process died mid-run" into "confirmed success" for an agent's later sessions — the origin of business rules 1-3.
+- **The static-pruning ceiling** (arXiv 2604.04979 "Squeez", arXiv 2604.19572): fixed per-command rules are measurably worse than pruning conditioned on the agent's task/goal — would require a trained model or intent context passed to the filter. Not pursued in v1 (would contradict the deterministic philosophy), but recorded as the rule-based approach's known ceiling.
+- **Dilution effect**: a token reduction in one command's output doesn't equal a reduction in the session's total cost (prompt, history, and system prompt also count) — be careful when setting "savings" goals/marketing based on this.
+- **Efficiency rates reported by third parties** (RTK: `cargo test` ~99%, `git diff` ~94%, `git log` ~86%, `git status` ~75%; Headroom: code search ~92%, SRE debugging ~92%, general coding agent ~20%) — not independently audited by us (we use our own audit, section 10, as the primary reference). All of them use `bytes/4` as an estimator, never a real tokenizer.
 
 ---
 
-## 13. Decisões em aberto — pra virar milestones
+## 12. Quick glossary
 
-Tudo que resta decidir tem escopo bem definido pelas seções acima; o que falta é definir *quanto* entra em cada fase, não mais *qual técnica* usar.
+- **Borne**: a self-contained interception module (section 3) — French for "turnstile/terminal where you insert a token".
+- **Layer A / Layer B**: dedicated parser vs. declarative rule pipeline (section 5.2).
+- **Progressive disclosure**: returning a minimal headline by default, full detail only on request (section 8.1).
+- **Content-addressed store**: shared infrastructure for progressive disclosure, cache, and dedup — content becomes a hash, a hash recovers the original content (section 8).
+- **`bytes/4`**: a rough token estimate, not a real tokenizer (section 5.4.1).
 
-- [ ] **Escopo do v1 de `bornes/comandos`**: quais comandos ganham parser dedicado (Camada A) no v1 vs ficam só na Camada B genérica? Sugestão de partida: os mesmos de maior tráfego que já validamos (`git status/log/diff`, `pytest`, `cargo test`).
-- [x] **Escopo do v1 de `bornes/mcp`** — **decidido e implementado (2026-07-26): lazy-loading básico de schema + compressão de resultado, só stdio.** OAuth e streaming HTTP remoto ficam pra depois — nenhum dos dois é necessário pro caso majoritário (servidor MCP local via stdio, que é como a maioria dos servidores configurados no Claude Code roda hoje).
-- [x] **Escopo do v1 de `bornes/prosa`** — **decidido e implementado (2026-07-26): só corpo de commit (`git log`/`git show`) + utilitário standalone `elagix compress`.** `/compress` fica de fora (ver §7.2/§7.3 revisados: é uma tarefa diferente, não um caso de uso adiado). Resumir docstring/comentário longo em leitura de arquivo fica pra quando existir um parser de `read`/`smart` na Camada A — não tem onde plugar ainda.
-- [x] **Formato de dado da Camada B (specs §5.2/§5.3)** — **decidido: TOML** (2026-07-26). Três motivos: (1) suporte de primeira classe e maduro no ecossistema Rust (crate `toml`, o mesmo formato do próprio Cargo — `serde_yaml`, o principal crate YAML de Rust, já foi arquivado pelo mantenedor original em certo ponto, evidenciando instabilidade relativa do lado YAML); (2) TOML é mais explícito e resistente a corrupção silenciosa (YAML tem sensibilidade a indentação que às vezes não gera erro de parse, só estrutura errada sem avisar, e coerção implícita de tipo — o "Norway problem", `NO` virando booleano) — isso vai direto contra as regras de negócio 3 e 5 (fail-open, nunca falsificar); (3) mesmo formato que o RTK já usa pra cauda longa, facilitando referência cruzada. `snip` escolheu YAML por ergonomia de string multi-linha em fixture de teste — trade-off que não compensa dado que confiabilidade pesa mais que ergonomia na filosofia do projeto.
-- [x] **Escopo do v1 de cache (seção 8.2)** — **decidido (2026-07-26): só git histórico imutável, e só `git show <sha-explícito>`** (não `HEAD`, não `git log`, não working-tree). É o único caso onde "imutável" é comprovável sem heurística (um SHA explícito nunca muda de conteúdo; `HEAD`/branch podem apontar pra outro commit amanhã). Leitura de arquivo fica de fora do v1 (Camada A ainda não tem parser de `read`/`smart` — nada pra cachear ainda). Chave de cache inclui uma versão do formato do filtro (`git-show:v1:<sha>`) pra não servir saída de uma versão antiga do Elagix depois de o filtro mudar.
-- [x] **Onde mora o armazém endereçado por hash (seção 8)** — **decidido: disco, `~/.elagix/store/`** (mesmo padrão de `~/.elagix/shims/`, configurável via `$ELAGIX_STORE_DIR`). Memória por processo não serviria pra nada — cada chamada do shim é um processo novo e curto (specs §5.1), então cache/dedup teriam vida zero sem persistir em disco. Layout arquivo-por-hash (specs §8.5), sem índice/banco residente em RAM.
-- [x] **Política de limpeza do armazém em disco (seção 8.5)** — **decidido: expiração por idade, 14 dias, varredura preguiçosa** (sem daemon: a cada escrita no armazém, ~2% de chance de rodar uma varredura removendo arquivos com mtime mais velho que 14 dias — barato o bastante dado o volume estimado de KB/dia). Mais um comando manual de escape, `elagix store clear` (apaga tudo na hora) e `elagix store gc` (força a varredura já). 14 dias cobre confortavelmente o padrão de uso de uma sessão de trabalho contínua sem deixar o armazém crescer indefinidamente.
-- [ ] **Nome final**: "Elagix" segue sendo o nome de trabalho, nunca formalmente confirmado como definitivo.
+---
+
+## 13. Open decisions — to become milestones
+
+Everything left to decide has well-defined scope from the sections above; what's missing is deciding *how much* goes into each phase, not *which technique* to use anymore.
+
+- [ ] **v1 scope for `bornes/comandos`**: which commands get a dedicated parser (Layer A) in v1 vs. staying on the generic Layer B? Starting suggestion: the same highest-traffic ones we've already validated (`git status/log/diff`, `pytest`, `cargo test`).
+- [x] **v1 scope for `bornes/mcp`** — **decided and implemented (2026-07-26): basic schema lazy-loading + result compression, stdio only.** OAuth and remote HTTP streaming are left for later — neither is necessary for the majority case (a local MCP server over stdio, which is how most servers configured in Claude Code run today).
+- [x] **v1 scope for `bornes/prosa`** — **decided and implemented (2026-07-26): commit body only (`git log`/`git show`) + the standalone `elagix compress` utility.** `/compress` is left out (see revised §7.2/§7.3: it's a different task, not a deferred use case). Summarizing a long docstring/comment during a file read is left for whenever a `read`/`smart` parser exists in Layer A — there's nowhere to plug it in yet.
+- [x] **Layer B data format (specs §5.2/§5.3)** — **decided: TOML** (2026-07-26). Three reasons: (1) first-class, mature support in the Rust ecosystem (the `toml` crate, the same format Cargo itself uses — `serde_yaml`, Rust's main YAML crate, was archived by its original maintainer at one point, evidence of relative instability on the YAML side); (2) TOML is more explicit and resistant to silent corruption (YAML has indentation sensitivity that sometimes produces no parse error, just wrong structure with no warning, plus implicit type coercion — the "Norway problem", `NO` becoming a boolean) — that goes directly against business rules 3 and 5 (fail-open, never falsify); (3) the same format RTK already uses for its long tail, making cross-referencing easier. `snip` chose YAML for multi-line string ergonomics in test fixtures — a trade-off that doesn't pay off given that reliability outweighs ergonomics in this project's philosophy.
+- [x] **v1 scope for cache (section 8.2)** — **decided (2026-07-26): only immutable git history, and only `git show <explicit-sha>`** (not `HEAD`, not `git log`, not the working tree). It's the only case where "immutable" is provable without a heuristic (an explicit SHA never changes content; `HEAD`/a branch can point to a different commit tomorrow). File reading is left out of v1 (Layer A still has no `read`/`smart` parser — nothing to cache yet). The cache key includes a filter format version (`git-show:v1:<sha>`) so it never serves output from an old Elagix version after the filter changes.
+- [x] **Where the content-addressed store lives (section 8)** — **decided: disk, `~/.elagix/store/`** (same pattern as `~/.elagix/shims/`, configurable via `$ELAGIX_STORE_DIR`). Per-process memory wouldn't serve any purpose — every shim call is a new, short-lived process (specs §5.1), so cache/dedup would have zero lifespan without persisting to disk. File-per-hash layout (specs §8.5), no resident index/database in RAM.
+- [x] **Disk store cleanup policy (section 8.5)** — **decided: age-based expiration, 14 days, a lazy sweep** (no daemon: every store write has a ~2% chance of running a sweep that removes files with an mtime older than 14 days — cheap enough given the estimated KB/day volume). Plus a manual escape hatch, `elagix store clear` (wipes everything immediately) and `elagix store gc` (forces the sweep right away). 14 days comfortably covers a continuous work session's usage pattern without letting the store grow indefinitely.
+- [x] **Final name** — **decided: "Elagix"** (2026-07-26). Formerly a working name ("Jeton"), formally confirmed as final after exploring several naming directions (French vocabulary, wordplay, Clair Obscur-themed, Japanese/German/Russian options) — chosen from the "élagage"/"élagueur" family (French for pruning/trimming), matching the project's own metaphor of cutting excess while keeping what matters.

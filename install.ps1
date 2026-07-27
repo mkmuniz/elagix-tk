@@ -1,19 +1,19 @@
-# Instalador Elagix — Windows nativo (specs.md §5.1, M8).
+# Elagix installer — native Windows (specs.md §5.1, M8).
 #
-# v1 (2026-07-26): não builda cross-compilado sozinho (isso é feito no lado
-# WSL/Linux com `cargo build --release --target x86_64-pc-windows-gnu` —
-# ver MILESTONES.md M8). Este script assume que já existe um `elagix.exe`
-# em um dos três lugares abaixo, ou que o `cargo` (toolchain Windows nativa)
-# está disponível pra buildar na hora. Symlink não é usado de propósito —
-# precisaria de modo desenvolvedor/admin no Windows; cópia simples funciona
-# igual, porque o elagix decide o que filtrar pelo NOME do arquivo (argv[0]),
-# não por ser link ou cópia.
+# v1 (2026-07-26): doesn't cross-compile on its own (that's done on the
+# WSL/Linux side with `cargo build --release --target x86_64-pc-windows-gnu`
+# — see MILESTONES.md M8). This script assumes an `elagix.exe` already
+# exists in one of the three locations below, or that `cargo` (a native
+# Windows toolchain) is available to build it on the spot. Symlinks are
+# deliberately not used — would need developer mode/admin on Windows; a
+# plain copy works just as well, since elagix decides what to filter by the
+# file's NAME (argv[0]), not by whether it's a link or a copy.
 $ErrorActionPreference = "Stop"
 
 $ShimsDir = if ($env:ELAGIX_SHIMS_DIR) { $env:ELAGIX_SHIMS_DIR } else { Join-Path $env:USERPROFILE ".elagix\shims" }
 
-# Mesma lista do install.sh (Camada A: git/pytest/cargo; Camada B:
-# docker/npm/terraform) — manter as duas em sincronia se a lista mudar.
+# Same list as install.sh (Layer A: git/pytest/cargo; Layer B:
+# docker/npm/terraform) — keep both in sync if the list changes.
 $DefaultCommands = @("git", "cargo", "pytest", "docker", "npm", "terraform")
 
 function Find-ElagixExe {
@@ -33,7 +33,7 @@ $ElagixExe = Find-ElagixExe
 if (-not $ElagixExe) {
     $cargo = Get-Command cargo -ErrorAction SilentlyContinue
     if ($cargo) {
-        Write-Host "elagix: nao achei um elagix.exe pronto, compilando com cargo (toolchain Windows nativa)..."
+        Write-Host "elagix: no ready-made elagix.exe found, building with cargo (native Windows toolchain)..."
         Push-Location $PSScriptRoot
         try { cargo build --release } finally { Pop-Location }
         $ElagixExe = Find-ElagixExe
@@ -41,31 +41,31 @@ if (-not $ElagixExe) {
 }
 
 if (-not $ElagixExe) {
-    Write-Error "elagix: nao achei elagix.exe (procurei target\release, target\x86_64-pc-windows-gnu\release e ao lado do script) e nao tem cargo disponivel pra compilar. Rode 'cargo build --release --target x86_64-pc-windows-gnu' no WSL primeiro, ou instale o Rust (https://rustup.rs) aqui."
+    Write-Error "elagix: couldn't find elagix.exe (checked target\release, target\x86_64-pc-windows-gnu\release, and next to the script) and cargo isn't available to build it. Run 'cargo build --release --target x86_64-pc-windows-gnu' on WSL first, or install Rust (https://rustup.rs) here."
     exit 1
 }
 
-Write-Host "elagix: usando binario em $ElagixExe"
+Write-Host "elagix: using binary at $ElagixExe"
 
 New-Item -ItemType Directory -Force -Path $ShimsDir | Out-Null
 foreach ($cmd in $DefaultCommands) {
     $dest = Join-Path $ShimsDir "$cmd.exe"
     Copy-Item -Path $ElagixExe -Destination $dest -Force
 }
-Write-Host "elagix: shims criados em $ShimsDir para: $($DefaultCommands -join ', ')"
+Write-Host "elagix: shims created in $ShimsDir for: $($DefaultCommands -join ', ')"
 
 $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 $pathEntries = @()
 if ($currentUserPath) { $pathEntries = $currentUserPath.Split(";") }
 
 if ($pathEntries -contains $ShimsDir) {
-    Write-Host "elagix: PATH do usuario ja tem $ShimsDir (nada a fazer)"
+    Write-Host "elagix: user PATH already has $ShimsDir (nothing to do)"
 } else {
     $newPath = if ($currentUserPath) { "$ShimsDir;$currentUserPath" } else { $ShimsDir }
     [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    Write-Host "elagix: $ShimsDir adicionado ao PATH do usuario (persistente)"
+    Write-Host "elagix: $ShimsDir added to the user PATH (persistent)"
 }
 
 Write-Host ""
-Write-Host "elagix: instalado. Abra um terminal NOVO pra pegar o PATH atualizado."
-Write-Host "elagix: teste com 'git status | more' ou qualquer pipe -- se filtrar, funcionou."
+Write-Host "elagix: installed. Open a NEW terminal to pick up the updated PATH."
+Write-Host "elagix: test with 'git status | more' or any pipe -- if it filters, it worked."

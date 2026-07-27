@@ -3,21 +3,22 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Resolve o binário real de `name` no $PATH, ignorando a pasta de shims do Elagix.
+/// Resolves the real binary for `name` in $PATH, skipping Elagix's own shims folder.
 ///
-/// Bug real encontrado e corrigido nesta sessão (2026-07-26): a primeira versão
-/// tentava *descobrir* a própria pasta a partir de `argv[0]`, assumindo que o shell
-/// sempre passa o caminho completo resolvido. Não é verdade — bash pode passar só
-/// o nome nu ("git"), sem diretório nenhum. Isso fazia a checagem de "pular minha
-/// própria pasta" falhar silenciosamente, resolver a si mesmo como "binário real",
-/// e reprocessar a própria saída já filtrada uma segunda vez (filtro aplicado 2x).
+/// Real bug found and fixed this session (2026-07-26): the first version
+/// tried to *discover* its own folder from `argv[0]`, assuming the shell
+/// always passes the fully resolved path. Not true — bash can pass just the
+/// bare name ("git"), no directory at all. That made the "skip my own
+/// folder" check fail silently, resolve itself as the "real binary", and
+/// reprocess its own already-filtered output a second time (filter applied
+/// twice).
 ///
-/// Correção: não *descobrir* a pasta de shims, **saber** ela de antemão — é o
-/// próprio Elagix quem cria os links simbólicos lá durante a instalação, então não
-/// precisa inferir nada em tempo de execução.
+/// Fix: don't *discover* the shims folder, **know** it ahead of time — it's
+/// Elagix itself that creates the symlinks there during installation, so
+/// there's no need to infer anything at runtime.
 ///
-/// Regra de negócio 7 (specs.md §4): herda o mesmo $PATH do processo pai, nunca
-/// resolve binário por conta própria fora disso.
+/// Business rule 7 (specs.md §4): always inherits the same $PATH as the
+/// parent process, never resolves a binary on its own outside of that.
 pub fn resolve_real_binary(name: &str) -> Option<PathBuf> {
     let own_dir = shims_dir();
     let path_var = env::var_os("PATH")?;
@@ -42,10 +43,10 @@ pub fn resolve_real_binary(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Pasta onde os shims do Elagix moram — configurável via `ELAGIX_SHIMS_DIR` pra
-/// facilitar teste (várias instalações lado a lado), com fallback padrão em
-/// `~/.elagix/shims`. Canonicalizada pra comparar de forma confiável contra as
-/// entradas de `$PATH` (que podem ter formas diferentes do mesmo caminho).
+/// Folder where Elagix's shims live — configurable via `ELAGIX_SHIMS_DIR` to
+/// make testing easier (several installs side by side), defaulting to
+/// `~/.elagix/shims`. Canonicalized to compare reliably against `$PATH`
+/// entries (which can have different forms of the same path).
 fn shims_dir() -> Option<PathBuf> {
     let raw = match env::var_os("ELAGIX_SHIMS_DIR") {
         Some(v) => PathBuf::from(v),
@@ -79,8 +80,9 @@ pub struct CapturedRun {
     pub exit_code: i32,
 }
 
-/// Roda o binário real capturando stdout (stderr passa direto, igual o comando original faria) —
-/// usado no caminho não-interativo (pipe), onde a saída vai ser filtrada antes de chegar no agente.
+/// Runs the real binary capturing stdout (stderr passes straight through,
+/// same as the original command would) — used on the non-interactive
+/// (pipe) path, where the output will be filtered before it reaches the agent.
 pub fn run_captured(real_bin: &Path, args: &[String]) -> std::io::Result<CapturedRun> {
     let output = Command::new(real_bin)
         .args(args)
@@ -94,9 +96,10 @@ pub fn run_captured(real_bin: &Path, args: &[String]) -> std::io::Result<Capture
     })
 }
 
-/// Caminho interativo (TTY): substitui o processo atual pelo binário real, sem
-/// filtrar nada — passthrough total. No Unix isso é um exec de verdade (mesmo PID,
-/// sem processo extra). No Windows, spawna e espera (não existe exec-replace no std).
+/// Interactive (TTY) path: replaces the current process with the real
+/// binary, without filtering anything — total passthrough. On Unix this is
+/// a real exec (same PID, no extra process). On Windows, spawns and waits
+/// (there's no exec-replace in std).
 #[cfg(unix)]
 pub fn exec_passthrough(real_bin: &Path, args: &[String]) -> std::io::Result<()> {
     use std::os::unix::process::CommandExt;

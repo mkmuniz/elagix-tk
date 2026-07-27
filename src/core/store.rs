@@ -3,13 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Armazém local endereçado por hash (specs.md §8) — infraestrutura
-/// compartilhada por disclosure progressivo (8.1), cache (8.2) e
-/// deduplicação (8.3). Layout arquivo-por-hash, sem índice em RAM (decisão
-/// registrada em specs §13, 2026-07-26): cada chamada do shim lê só o
-/// arquivo do hash que precisa.
+/// Local content-addressed store (specs.md §8) — infrastructure shared by
+/// progressive disclosure (8.1), cache (8.2), and deduplication (8.3).
+/// File-per-hash layout, no in-RAM index (decision recorded in specs §13,
+/// 2026-07-26): each shim call only reads the one file for the hash it needs.
 const MAX_AGE_DAYS: u64 = 14;
-const SWEEP_SAMPLE_RATE: u64 = 50; // ~2% de chance de varrer a cada escrita
+const SWEEP_SAMPLE_RATE: u64 = 50; // ~2% chance of sweeping on any given write
 
 fn store_root() -> PathBuf {
     if let Ok(dir) = std::env::var("ELAGIX_STORE_DIR") {
@@ -21,9 +20,9 @@ fn store_root() -> PathBuf {
 
 fn hash_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
-    // 16 hex chars (64 bits) — colisão desprezível pro volume estimado em
-    // specs §8.5 (~100 entradas/dia), curto o bastante pra citar em texto
-    // (ex: "elagix show a3f9c2d1e8b04f77").
+    // 16 hex chars (64 bits) — negligible collision risk for the volume
+    // estimated in specs §8.5 (~100 entries/day), short enough to quote in
+    // text (e.g. "elagix show a3f9c2d1e8b04f77").
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
@@ -39,9 +38,9 @@ fn write_file(path: &Path, content: &str) {
     let _ = fs::write(path, content);
 }
 
-/// Armazém endereçado por conteúdo (CAS) — mesmo conteúdo sempre produz o
-/// mesmo hash, escrita é idempotente (regra de negócio 5: determinístico).
-/// Usado por disclosure progressivo (8.1) e como backing store de dedup (8.3).
+/// Content-addressed store (CAS) — the same content always produces the same
+/// hash, writes are idempotent (business rule 5: deterministic). Used by
+/// progressive disclosure (8.1) and as dedup's backing store (8.3).
 pub fn put(content: &str) -> String {
     let hash = hash_hex(content.as_bytes());
     let path = sharded_path("cas", &hash);
@@ -57,9 +56,9 @@ pub fn get(hash: &str) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
-/// Cache por chave arbitrária (8.2) — diferente do CAS: a chave é o
-/// identificador do *comando* (ex.: `"git-show:v1:<sha>"`), não o hash do
-/// conteúdo, porque precisa ser consultável ANTES de saber o resultado.
+/// Cache keyed by an arbitrary string (8.2) — unlike the CAS, the key is the
+/// *command's* identifier (e.g. `"git-show:v1:<sha>"`), not a hash of the
+/// content, because it needs to be queryable BEFORE the result is known.
 pub fn get_keyed(key: &str) -> Option<String> {
     let path = sharded_path("keyed", &hash_hex(key.as_bytes()));
     fs::read_to_string(path).ok()
@@ -78,19 +77,20 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Resultado da checagem de deduplicação (8.3, "esta é a única técnica que
-/// reduz token de fato" — cache sozinho só ganha performance).
+/// Result of the deduplication check (8.3, "the only technique that actually
+/// cuts tokens" — cache alone only buys performance).
 pub enum Dedup {
-    /// Já apareceu dentro da janela — quem chama já tem o hash (calculou
-    /// antes de chamar, pra poder gravar no CAS independente do resultado).
+    /// Already appeared within the window — the caller already has the hash
+    /// (computed it before calling, so it can write to the CAS regardless of
+    /// the result).
     SeenRecently,
     Fresh,
 }
 
-/// Checa se `content` já foi mostrado dentro da janela deslizante (limitação
-/// conhecida documentada em specs §8.3: aproxima "sessão" por tempo, não por
-/// id real — o shim não tem acesso a um identificador de sessão estável).
-/// Sempre registra a aparição atual, mesmo quando `Fresh`.
+/// Checks whether `content` has already been shown within the sliding
+/// window (known limitation documented in specs §8.3: approximates "session"
+/// by time, not by a real id — the shim has no access to a stable session
+/// identifier). Always records the current appearance, even when `Fresh`.
 pub fn check_and_record_dedup(content: &str, window_secs: u64) -> Dedup {
     let hash = hash_hex(content.as_bytes());
     let log_path = store_root().join("seen.log");
@@ -113,28 +113,25 @@ pub fn check_and_record_dedup(content: &str, window_secs: u64) -> Dedup {
     };
 
     kept.push((now, hash));
-    let serialized: String = kept
-        .iter()
-        .map(|(ts, h)| format!("{ts} {h}\n"))
-        .collect();
+    let serialized: String = kept.iter().map(|(ts, h)| format!("{ts} {h}\n")).collect();
     write_file(&log_path, &serialized);
 
     result
 }
 
-/// Varredura preguiçosa (specs §13, política de limpeza decidida 2026-07-26):
-/// sem daemon, então cada escrita tem uma chance pequena de disparar a
-/// varredura em vez de rodar toda vez (custo de I/O desnecessário pro volume
-/// estimado em specs §8.5).
+/// Lazy sweep (specs §13, cleanup policy decided 2026-07-26): with no
+/// daemon, each write has a small chance of triggering a sweep instead of
+/// running one every time (unnecessary I/O cost for the volume estimated in
+/// specs §8.5).
 fn maybe_sweep() {
-    if now_secs() % SWEEP_SAMPLE_RATE == 0 {
+    if now_secs().is_multiple_of(SWEEP_SAMPLE_RATE) {
         force_gc();
     }
 }
 
-/// Remove entradas de `cas/` e `keyed/` mais velhas que `MAX_AGE_DAYS`.
-/// Fail-open (regra de negócio 3): erro de I/O numa entrada não interrompe a
-/// varredura das demais.
+/// Removes entries from `cas/` and `keyed/` older than `MAX_AGE_DAYS`.
+/// Fail-open (business rule 3): an I/O error on one entry doesn't stop the
+/// sweep of the rest.
 pub fn force_gc() {
     let cutoff = now_secs().saturating_sub(MAX_AGE_DAYS * 24 * 60 * 60);
     for subdir in ["cas", "keyed"] {
@@ -143,9 +140,13 @@ pub fn force_gc() {
 }
 
 fn sweep_dir(dir: &Path, cutoff: u64) {
-    let Ok(shards) = fs::read_dir(dir) else { return };
+    let Ok(shards) = fs::read_dir(dir) else {
+        return;
+    };
     for shard in shards.flatten() {
-        let Ok(entries) = fs::read_dir(shard.path()) else { continue };
+        let Ok(entries) = fs::read_dir(shard.path()) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let is_old = entry
@@ -175,9 +176,9 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    // $HOME é global ao processo — testes de store precisam rodar
-    // serializados com um diretório isolado, senão correm em paralelo e
-    // pisam no mesmo `~/.elagix/store` de verdade.
+    // $HOME is global to the process — store tests need to run serialized
+    // with an isolated directory, otherwise they run in parallel and stomp
+    // on the same real `~/.elagix/store`.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_isolated_store<T>(f: impl FnOnce() -> T) -> T {
@@ -197,16 +198,16 @@ mod tests {
     #[test]
     fn put_get_roundtrip() {
         with_isolated_store(|| {
-            let hash = put("conteudo de teste");
-            assert_eq!(get(&hash), Some("conteudo de teste".to_string()));
+            let hash = put("test content");
+            assert_eq!(get(&hash), Some("test content".to_string()));
         });
     }
 
     #[test]
     fn put_is_idempotent_same_hash() {
         with_isolated_store(|| {
-            let h1 = put("igual");
-            let h2 = put("igual");
+            let h1 = put("same");
+            let h2 = put("same");
             assert_eq!(h1, h2);
         });
     }
@@ -215,10 +216,10 @@ mod tests {
     fn keyed_cache_roundtrip() {
         with_isolated_store(|| {
             assert!(get_keyed("git-show:v1:abc123").is_none());
-            put_keyed("git-show:v1:abc123", "saida cacheada");
+            put_keyed("git-show:v1:abc123", "cached output");
             assert_eq!(
                 get_keyed("git-show:v1:abc123"),
-                Some("saida cacheada".to_string())
+                Some("cached output".to_string())
             );
         });
     }
@@ -227,11 +228,11 @@ mod tests {
     fn dedup_detects_repeat_within_window() {
         with_isolated_store(|| {
             assert!(matches!(
-                check_and_record_dedup("saida X", 1800),
+                check_and_record_dedup("output X", 1800),
                 Dedup::Fresh
             ));
             assert!(matches!(
-                check_and_record_dedup("saida X", 1800),
+                check_and_record_dedup("output X", 1800),
                 Dedup::SeenRecently
             ));
         });
@@ -240,10 +241,10 @@ mod tests {
     #[test]
     fn dedup_ignores_entries_outside_window() {
         with_isolated_store(|| {
-            check_and_record_dedup("saida Y", 0); // janela zero: expira na hora
+            check_and_record_dedup("output Y", 0); // zero window: expires immediately
             std::thread::sleep(std::time::Duration::from_secs(1));
             assert!(matches!(
-                check_and_record_dedup("saida Y", 0),
+                check_and_record_dedup("output Y", 0),
                 Dedup::Fresh
             ));
         });
