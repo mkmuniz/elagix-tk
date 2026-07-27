@@ -1,0 +1,19 @@
+# Camada B — specs.md §5.3. Alvo: `npm install`. No RTK esse caso rendeu
+# -64,3% (auditoria seção 10.1, "piorou") — mas por divergência de PATH/
+# plumbing (tipo de falha nº 4, seção 10.2), não por falha de estratégia.
+# Aqui a estratégia em si: descartar avisos de depreciação em cascata
+# (ruído repetitivo por pacote transitivo) e manter só o resumo final.
+match_command = "npm"
+match_args_prefix = ["install"]
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^npm warn deprecated"]
+
+[[pipeline]]
+action = "max_lines"
+limit = 20
+
+[[pipeline]]
+action = "on_empty"
+message = "npm install: concluído sem saída"

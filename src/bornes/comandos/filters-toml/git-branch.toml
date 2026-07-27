@@ -1,0 +1,18 @@
+# Camada B — specs.md §5.3. Alvo: `git branch -a`, que no RTK fica na faixa
+# 1-42% (auditoria seção 10.1) — repositórios com muitos branches remotos
+# obsoletos (`remotes/origin/HEAD`, branches de PR já mergeados) produzem
+# listas longas de baixo valor informativo.
+match_command = "git"
+match_args_prefix = ["branch"]
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["remotes/origin/HEAD"]
+
+[[pipeline]]
+action = "max_lines"
+limit = 25
+
+[[pipeline]]
+action = "on_empty"
+message = "git branch: nenhum branch"

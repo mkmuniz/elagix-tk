@@ -1,0 +1,162 @@
+commit cb93a3bd721a85b25c113413c8ed93b099bcc7f8
+Author: Mkmuniz <mikaelmuniz2001@gmail.com>
+Date:   Sat Jul 25 22:42:21 2026 -0300
+
+    chore: cargo fmt (fix CI fmt-check failure)
+    
+    Never ran cargo fmt this session, only build/clippy/test -- the CI fmt-check gate caught real drift across committee.rs/committee_store.rs (this session own new files) plus console_prompt.rs/credential_command.rs/extension_command.rs/rate_limit.rs/control_plane_routes.rs (earlier session work on this branch, never formatted either). Purely mechanical, no behavior change: build, clippy, and the full test suite all still pass clean after formatting.
+
+commit e1fe7741ff3ba766ffb5bad8b039cd702d2f62e5
+Author: Mkmuniz <mikaelmuniz2001@gmail.com>
+Date:   Sat Jul 25 21:27:56 2026 -0300
+
+    feat(committee): M5 outcome logging + M6 per-persona stigmergy weighting
+    
+    M5 -- /committee decisions were never persisted; nothing let an operator
+    tell the system whether a recommendation actually panned out. Adds
+    committee_outcomes (new file agent/committee_store.rs, own schema in the
+    same session DB file SqliteTaskStore already shares -- no bastion-core
+    change needed for this half):
+    
+    - handle() inserts a row after Stage 4 completes: question, each signal
+      persona's signal plus whether it was ALIGNED with the candidate the
+      committee actually carried forward (unanimous stage 1 -> everyone
+      aligned; a stage 2 debate -> aligned iff NOT among
+      CabinetVerdict::dissents), and the final recommendation text. Prints the
+      new record id so the operator can grade it later.
+    - New /committee outcome <id> <helpful|harmful|neutral> subcommand
+      (handle_outcome, routed in main.rs before the pipeline's
+      question-required parsing sees it) reads the row back, owner-scoped, and
+      rejects grading the same record twice.
+    
+    M6 -- reinforce_belief/evaporate_beliefs have always been hardcoded to
+    persona_tag IS NULL (the untagged general playbook); no mechanism ever
+    touched a PERSONA-tagged belief's weight despite the column existing since
+    the original schema. handle_outcome now gets-or-creates one procedural
+    belief per (owner, persona) standing in for that signal persona's
+    committee track record, and rewards or punishes it via bastion-core's new
+    reinforce_persona_belief/weaken_persona_belief (previous commit):
+    aligned-with-a-helpful-outcome or dissented-from-a-harmful-one gets
+    rewarded; the opposite pairing gets punished. PERSONA_TRUST_DELTA (0.3) is
+    deliberately smaller than the belief's starting weight (1.0) so one wrong
+    call does not immediately erase a persona from view (weaken floors at 0.0,
+    and retrieve_tagged only returns weight > 0 rows).
+    
+    The current trust weight is surfaced in Stage 1's report next to each
+    signal (informational only -- does NOT bias the disagreement gate or
+    synthesis; a real vote-weighting mechanism is a separate, later decision).
+    
+    Bumps the pinned bastion-core rev to 102bd6d (persona-tagged
+    reinforce/weaken, pushed separately) and drops the temporary local [patch]
+    used during development.
+    
+    12 new tests (committee_store: insert/get/owner-scoping/double-record
+    guard; committee::outcome_tests: reward/punish/neutral/empty-signals/
+    double-grading/invalid-input, plus one proving the 0.3 delta choice avoids
+    erasing a persona after a single wrong call), all passing alongside the
+    full existing suite. Live-validated against a real running daemon: seeded
+    a row directly in the session DB and drove /committee outcome through the
+    actual stdin command router (helpful reward/punish landed exactly as
+    designed, double-grading/invalid-outcome/unknown-id all rejected
+    correctly) -- Gemini free-tier quota was exhausted for the day, blocking a
+    full live Stage 1-4 run, so the LLM-calling pipeline itself relies on the
+    existing unit tests plus the M3/M4 live validation already done earlier
+    this session.
+
+commit 6b0785925f61dfdcc7b35ca1103871fc034694a2
+Author: Mkmuniz <mikaelmuniz2001@gmail.com>
+Date:   Sat Jul 25 19:50:28 2026 -0300
+
+    feat(agent): allow read-only commands while a console prompt is pending
+    
+    Found via a UX walkthrough of the persona-selection prompt: any `/` command
+    typed while PendingConsolePrompt was active auto-resolved the prompt with
+    "none" and discarded it -- including a harmless "just checking" command
+    like `/extension list` (to see what's already installed before answering
+    the menu). The operator loses their pending choice just for looking.
+    
+    is_read_only_while_prompt_pending() whitelists the specific (command,
+    subcommand) forms confirmed genuinely read-only against
+    command_catalog.rs's own descriptions: /help, /logs, /connect, bare
+    /model, bare /backend, /update (bare or "status"), "/task list"/"/task
+    inspect", "/schedule list", "/credential list", "/extension list",
+    "/proposal list"/"/proposal show". Every other form of those same commands
+    (install, revoke, cancel, approve, use, apply, ...) still falls through to
+    the existing auto-resolve-with-none behavior, since those DO mutate state
+    or could themselves want a second pending prompt (only one slot exists).
+    
+    Implementation: the guard on the pending-prompt match arm in main.rs's
+    REPL loop now excludes read-only lines, so they never reach
+    pending_console_prompt.take() -- they fall through to the normal
+    `/`-dispatch arm below unchanged, and the prompt is untouched, still
+    answerable on the operator's next line.
+    
+    2 new tests (accepts every whitelisted form, rejects every mutating one +
+    non-command chat). Full suite (474 unit + ~100 integration) green, clippy
+    clean on both feature sets.
+
+commit 68de77f47b6afb62e8d5730a181e6721bec2f132
+Author: Mkmuniz <mikaelmuniz2001@gmail.com>
+Date:   Sat Jul 25 19:13:13 2026 -0300
+
+    feat(agent): /committee -- 2-stage Cabinet composition (M4)
+    
+    Backlog: "Bastion -- hedge fund pack (comite de personas investidoras)" (B2).
+    M4 slice -- the "Estagio 2" dissent gate the original design called for,
+    on top of M3's simpler "just reuse /cabinet" pass.
+    
+    New src/agent/committee.rs, wired as a new /committee <pergunta> console
+    command (same trusted-host tier as /extension):
+    
+    1. Stage 1 -- convenes the 4 signal personas (fundamentalist, contrarian,
+       macro, growth) for exactly 1 round (no reply round -- they must not see
+       each other yet). Parses each turn's {signal, confidence, reasoning}
+       JSON (tolerates markdown-fenced JSON, same approach as the router's own
+       parser, since no shared utility for that exists in bastion-core).
+    2. Disagreement gate -- if the parsed signals don't all agree, convenes a
+       SECOND, narrower Cabinet with only the personas that produced a signal,
+       for a real multi-round debate, then synthesizes a verdict from it. If
+       they already agree, skips straight to stage 3 with stage 1's signals.
+    3. Stage 3 -- Risk Manager, single-persona dispatch (not Cabinet, no
+       debate).
+    4. Stage 4 -- Portfolio Manager, same single-dispatch shape, folding in
+       the Risk Manager's output. Final decision printed to the console.
+    
+    This is the first place in bastion-agent that calls bastion-core's Cabinet
+    primitives (build_table, orchestrator::deliberate, synth::synthesize)
+    directly, composing them twice in one turn -- confirmed via research
+    before writing this that no precedent for that composition existed
+    anywhere in the codebase (the only production path today is the automatic
+    one inside PersonaResponder::respond). Every RouterDecision built here is
+    hand-constructed, tagged ConveneReason::ManualOverride.
+    
+    Egress gating: orchestrator::deliberate and runner::run's Single path both
+    call check_egress internally already. The one gate this module adds
+    itself is the same one PersonaResponder::respond adds before calling
+    synth::synthesize (which does not gate internally) -- see the stage-2
+    synthesis call site.
+    
+    Validated: builds and passes the full existing test suite/clippy against
+    the real (now-pushed) bastion-core rev. Smoke-tested against a real LLM
+    (Gemini) -- confirmed the error path handles a real provider failure
+    (daily free-tier quota exhausted) cleanly, without panicking. Full
+    successful end-to-end run (all 4 stages completing) still pending --
+    blocked on the quota resetting, not on the code.
+
+commit df8f07ccbdb9c1465b6bef4c46e69a3c308134a9
+Author: Mkmuniz <mikaelmuniz2001@gmail.com>
+Date:   Sat Jul 25 19:12:52 2026 -0300
+
+    chore: bump pinned bastion-core rev to ad64fd0
+    
+    Picks up two same-day fixes needed by this repo's own code:
+    - Cabinet personas never received the actual user question (fix)
+    - stagger between Cabinet's parallel persona provider calls (improvement,
+      reduces free-tier rate limiting)
+    
+    Also needed for src/agent/committee.rs (M4), which calls
+    orchestrator::deliberate with its new 5-argument signature -- this repo
+    would not build against the old rev anymore.
+    
+    cargo build/test/clippy clean against the new rev (both default and
+    mcp-server feature sets).

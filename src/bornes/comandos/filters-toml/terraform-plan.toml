@@ -1,0 +1,21 @@
+# Camada B — specs.md §5.3. Alvo: `terraform plan`, faixa 1-42% no RTK
+# (auditoria seção 10.1). Ruído típico: refresh de estado recurso-a-recurso
+# (uma linha por recurso já existente, sem mudança) e o resumo "unchanged"
+# repetido por recurso — o que importa é o que MUDA, não o que refrescou.
+match_command = "terraform"
+match_args_prefix = ["plan"]
+
+[[pipeline]]
+action = "strip_ansi"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^[a-zA-Z0-9_.\\[\\]\"-]+: Refreshing state\\.\\.\\.", "^\\s*#.*\\(no changes\\)"]
+
+[[pipeline]]
+action = "max_lines"
+limit = 80
+
+[[pipeline]]
+action = "on_empty"
+message = "terraform plan: sem mudanças"

@@ -1,0 +1,6 @@
+/target/
+
+# Scratch de pesquisa/benchmark de fases anteriores (protótipos Rust/Go/Bun,
+# dashboard de comparação com o RTK, projeto Terraform de teste) — não faz
+# parte do produto, já documentado em specs.md §10. Fica fora do repo.
+/bench/
