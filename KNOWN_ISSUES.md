@@ -5,8 +5,10 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 ## Platform / installation
 
 - **`install.ps1` not validated with full activation.** Only tested in safe mode (an isolated copy, without touching the real PATH) — this development machine has no native `git`/`cargo`/`npm` on Windows (they only exist via WSL), so there was no way to validate intercepting a real native binary. Needs to run on a Windows machine with a native toolchain installed.
-- **No macOS cross-compile.** Blocked by a missing SDK/Xcode (`cc: unrecognized -arch/-mmacosx-version-min`, evidence in MILESTONES.md M8). Needs a real Mac or a macOS CI runner (e.g. GitHub Actions `macos-latest`) — neither configured yet.
-- **`install.sh`'s `zsh` path never tested live** — only `bash`, this machine's real shell. The logic mirrors bash's (`~/.zprofile` + top of `~/.zshrc`), but it hasn't actually been exercised.
+- **macOS: native build only, no cross-compile from Linux.** Builds and passes all tests natively on Apple Silicon (2026-09-24), and CI now has a `macos-latest` job. Cross-compiling *from* Linux is still blocked by the missing SDK (MILESTONES.md M8) — not needed while CI builds natively.
+- **Shims only activate inside AI agents.** Since 2026-09-24 the shim filters only when an agent marker is set (`CLAUDECODE`, `AI_AGENT`, or `ELAGIX_FORCE=1`; `ELAGIX_DISABLE=1` turns it off). Other agents that set none of these pass through unfiltered until they're added or the user sets `ELAGIX_FORCE=1` in that tool's environment.
+- **Redirects inside an agent are still filtered.** Claude Code captures command output into a regular file, so `git diff > x.patch` run *by the agent* is indistinguishable from normal capture and gets filtered (an invalid patch). Pipes into other programs (`git log | grep`) are filtered too. Workaround: `ELAGIX_DISABLE=1 git diff > x.patch`.
+- **Python venvs / version managers can bypass shims.** Activating a venv (or similar) prepends its own `bin/` ahead of `~/.elagix/shims`, so e.g. `pytest` from the venv isn't intercepted.
 - **`install.sh`/`install.ps1` always build from source** — there's no prebuilt-binary download yet. A release pipeline (CI + published binaries) is a phase-2 idea (specs §3, original plan).
 - **Critical finding already fixed, but worth remembering for any new platform**: shim activation depends entirely on HOW the tool you want to intercept actually invokes a shell (login vs. interactive, etc. — see `specs.md` §5.1 and `MILESTONES.md`, "Critical post-M8 fix" section). Before declaring something "ready" on a new platform, you need to confirm the invocation pattern there experimentally, not assume it generalizes from WSL/Linux.
 
@@ -44,7 +46,6 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 - **No end-to-end integration test in `cargo test`** — every validation of the compiled binary's actual behavior (live shim, `git show` cache, PATH activation) was manual/live this session, not part of the automated suite.
 - **A known and accepted architectural ceiling, not a bug**: static per-command rules are measurably worse than pruning conditioned on the agent's task/intent (arXiv 2604.04979/2604.19572, specs §11) — would require a trained model or intent context passed to the filter, against the project's deterministic philosophy. Recorded, not pursued.
 - **Dilution effect** (specs §11): a token reduction in one command's output doesn't equal a reduction in the session's total cost (prompt, history, system prompt also count) — be careful reporting whole-session savings based only on per-command savings.
-- **The `elagix` binary itself isn't on `$PATH`** — only the shim names (`git`, `cargo`, `pytest`, `docker`, `npm`, `terraform`) are symlinks/copies in `~/.elagix/shims`. `elagix show`/`elagix store`/`elagix compress`/`elagix mcp` are only reachable today via the binary's full path (`~/projects/elagix/target/release/elagix show ...`), not a bare `elagix`. Found live while testing after the restructuring (2026-07-26) — not a regression, it's been like this since M4/M7, it just hadn't been noticed.
 
 ## Still-open decisions
 

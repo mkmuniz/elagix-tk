@@ -14,13 +14,16 @@ const DEDUP_MIN_BYTES: usize = 200;
 /// `invoked_name` (the process's `argv[0]`, resolved by `main.rs`).
 pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     let Some(real_bin) = shim::resolve_real_binary(invoked_name) else {
-        eprintln!("elagix: couldn't find the real binary for '{invoked_name}' in PATH");
-        return ExitCode::FAILURE;
+        // Same message and exit code (127) a shell gives for a missing
+        // command, so scripts probing for the tool behave as without Elagix.
+        eprintln!("{invoked_name}: command not found (elagix shim: no real binary in PATH)");
+        return ExitCode::from(127);
     };
 
     // Total passthrough for interactive human use — never filters when it's a
-    // TTY (specs.md §5.1). On Unix this replaces the current process (a real exec).
-    if shim::stdout_is_tty() {
+    // TTY (specs.md §5.1), nor when no AI agent is calling (see
+    // `shim::agent_active`). On Unix this replaces the current process (a real exec).
+    if shim::stdout_is_tty() || !shim::agent_active() {
         if let Err(e) = shim::exec_passthrough(&real_bin, rest_args) {
             eprintln!("elagix: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;

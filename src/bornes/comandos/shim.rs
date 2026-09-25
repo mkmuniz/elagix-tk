@@ -75,6 +75,27 @@ pub fn stdout_is_tty() -> bool {
     std::io::stdout().is_terminal()
 }
 
+/// Whether the caller is an AI agent — the only case where filtering pays
+/// off. "Not a TTY" alone isn't enough: found while activating on macOS
+/// (2026-09-24), VS Code's own Git panel, git hooks (husky/lint-staged) and
+/// npm scripts also call `git log`/`git diff`/`npm` through a pipe, and would
+/// get truncated output they can't parse. Agents mark their shell
+/// environment: Claude Code sets `CLAUDECODE=1`, and `AI_AGENT` is a generic
+/// marker other agents are adopting. `ELAGIX_FORCE=1` opts any other tool in,
+/// `ELAGIX_DISABLE=1` turns filtering off even inside an agent.
+pub fn agent_active() -> bool {
+    agent_active_from(|name| env::var_os(name).filter(|v| !v.is_empty()).is_some())
+}
+
+fn agent_active_from(is_set: impl Fn(&str) -> bool) -> bool {
+    if is_set("ELAGIX_DISABLE") {
+        return false;
+    }
+    ["ELAGIX_FORCE", "CLAUDECODE", "AI_AGENT"]
+        .iter()
+        .any(|name| is_set(name))
+}
+
 pub struct CapturedRun {
     pub stdout: Vec<u8>,
     pub exit_code: i32,
@@ -111,4 +132,33 @@ pub fn exec_passthrough(real_bin: &Path, args: &[String]) -> std::io::Result<()>
 pub fn exec_passthrough(real_bin: &Path, args: &[String]) -> std::io::Result<()> {
     let status = Command::new(real_bin).args(args).status()?;
     std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_vars(vars: &'static [&'static str]) -> impl Fn(&str) -> bool {
+        move |name| vars.contains(&name)
+    }
+
+    #[test]
+    fn plain_pipe_without_agent_is_not_filtered() {
+        assert!(!agent_active_from(with_vars(&[])));
+    }
+
+    #[test]
+    fn agent_markers_enable_filtering() {
+        assert!(agent_active_from(with_vars(&["CLAUDECODE"])));
+        assert!(agent_active_from(with_vars(&["AI_AGENT"])));
+        assert!(agent_active_from(with_vars(&["ELAGIX_FORCE"])));
+    }
+
+    #[test]
+    fn disable_wins_over_agent_markers() {
+        assert!(!agent_active_from(with_vars(&[
+            "CLAUDECODE",
+            "ELAGIX_DISABLE"
+        ])));
+    }
 }

@@ -5,11 +5,11 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 ## Platform / installation
 
 - [ ] Validate `install.ps1` with full activation on a Windows machine with a genuine native toolchain (`git`/`cargo`/`npm` on the Windows PATH, not just WSL).
-- [ ] Cross-compile and test Elagix on real macOS — needs a physical Mac or a macOS CI runner (e.g. GitHub Actions `macos-latest`).
-- [ ] Test `install.sh`'s `zsh` path live (`~/.zprofile` + top of `~/.zshrc`) — only `bash` has been validated so far.
+- [x] Build and test Elagix on real macOS — native build + 41 tests on Apple Silicon (2026-09-24); `macos-latest` job added to CI.
+- [x] Test `install.sh`'s `zsh` path live — validated on macOS (2026-09-24) with `zsh -lic`/`-lc`/`-ic`; the `.zshrc` line now goes at the END (after nvm), not the top.
 - [ ] Set up a release pipeline (CI + a published binary) to stop depending on building from source on every install.
 - [ ] Repeat the "how does Claude Code actually invoke a shell" check (login/interactive, etc.) on any new platform, before declaring activation ready there — don't assume it generalizes from WSL/Linux.
-- [ ] Add the `elagix` binary itself to the PATH (today only the shim names are; `elagix show`/`store`/`compress`/`mcp` only work via the full path).
+- [x] Add the `elagix` binary itself to the PATH — `install.sh` now links `~/.elagix/shims/elagix`.
 
 ## Command coverage (Layer B / `bornes/comandos`)
 
@@ -44,4 +44,4 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 - [ ] Write end-to-end integration tests against the compiled binary (today all validation of real behavior is manual/live, not part of `cargo test`).
 - [ ] Formally audit determinism (protects the provider's prompt cache, specs §8.4) — today it's only "by construction", with no dedicated test.
-- [ ] Set up CI (cross-platform build + test).
+- [x] Set up CI (cross-platform build + test) — Linux, Windows cross-compile, macOS.

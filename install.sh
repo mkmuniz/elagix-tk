@@ -48,17 +48,36 @@ if [ ! -x "$BIN_PATH" ]; then
 fi
 
 mkdir -p "$SHIMS_DIR"
+# Only shims commands that actually exist on this machine (looked up with the
+# shims folder removed from PATH, so a re-run doesn't find its own shims): a
+# shim for a missing tool would make `command -v terraform` succeed and
+# mislead scripts that probe for it. Installed a new tool later? Re-run this.
+REAL_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$SHIMS_DIR" | paste -sd: -)"
+SHIMMED=()
+SKIPPED=()
 for cmd in "${DEFAULT_COMMANDS[@]}"; do
-    ln -sf "$BIN_PATH" "$SHIMS_DIR/$cmd"
+    if PATH="$REAL_PATH" command -v "$cmd" >/dev/null 2>&1; then
+        ln -sf "$BIN_PATH" "$SHIMS_DIR/$cmd"
+        SHIMMED+=("$cmd")
+    else
+        rm -f "$SHIMS_DIR/$cmd"
+        SKIPPED+=("$cmd")
+    fi
 done
-echo "elagix: shims created in $SHIMS_DIR for: ${DEFAULT_COMMANDS[*]}"
+# `elagix` itself, so `elagix show <hash>` (the recovery hint printed in
+# filtered output) works as a bare command, not only via the full path.
+ln -sf "$BIN_PATH" "$SHIMS_DIR/elagix"
+echo "elagix: shims created in $SHIMS_DIR for: ${SHIMMED[*]:-none} (+ elagix)"
+if [ ${#SKIPPED[@]} -gt 0 ]; then
+    echo "elagix: not installed here, skipped: ${SKIPPED[*]} (re-run after installing them)"
+fi
 
 # Detects the right files from the user's login shell, not from whatever
 # shell is running this script right now (which could just be "bash" via
 # `sh install.sh`).
 case "$(basename "${SHELL:-bash}")" in
-    zsh) LOGIN_FILE="$HOME/.zprofile"; INTERACTIVE_FILE="$HOME/.zshrc" ;;
-    *) LOGIN_FILE="$HOME/.profile"; INTERACTIVE_FILE="$HOME/.bashrc" ;;
+    zsh) LOGIN_FILE="$HOME/.zprofile"; INTERACTIVE_FILE="$HOME/.zshrc"; SHELL_KIND=zsh ;;
+    *) LOGIN_FILE="$HOME/.profile"; INTERACTIVE_FILE="$HOME/.bashrc"; SHELL_KIND=bash ;;
 esac
 
 PATH_LINE="export PATH=\"$SHIMS_DIR:\$PATH\""
@@ -80,8 +99,22 @@ fi
 # covers the non-login+interactive case (`bash -ic`), which never reads
 # ~/.profile. Only stays ahead of any interactivity guard the file already
 # has if our line is the FIRST thing in the file.
+#
+# zsh is the exception (validated live on macOS, 2026-09-24): `.zshrc` has
+# no interactivity guard, and what it usually DOES have is nvm/pyenv/etc.
+# prepending their own bin folders — a line at the top would end up behind
+# them (`npm` from nvm would win over the shim). So for zsh the line goes at
+# the END, after everything else has touched PATH.
 if [ -f "$INTERACTIVE_FILE" ] && grep -Fq "$SHIMS_DIR" "$INTERACTIVE_FILE"; then
     echo "elagix: PATH already configured in $INTERACTIVE_FILE (nothing to do)"
+elif [ "$SHELL_KIND" = zsh ]; then
+    {
+        echo ""
+        echo "# Elagix — \$PATH shim (specs.md §5.1). Keep this at the END of the"
+        echo "# file, after nvm/pyenv/etc., so the shims stay first in PATH."
+        echo "$PATH_LINE"
+    } >> "$INTERACTIVE_FILE"
+    echo "elagix: added to the end of $INTERACTIVE_FILE"
 elif [ -f "$INTERACTIVE_FILE" ]; then
     TMP_FILE="$(mktemp)"
     {
