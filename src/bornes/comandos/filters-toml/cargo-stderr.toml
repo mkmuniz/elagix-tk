@@ -2,8 +2,10 @@
 # "Downloaded ..."): one per crate on a fresh build. Complements the Layer A
 # `cargo test` parser (which only sees stdout). Warnings, errors, "Finished"
 # and "Running" all stay.
+# No `run`: it often starts a long-lived server, and filtering means
+# buffering its output until it exits.
 match_command = "cargo"
-match_args_prefix = ["build|b|check|c|clippy|test|t|run|r|doc|bench"]
+match_args_prefix = ["build|b|check|c|clippy|test|t|doc|bench"]
 stream = "stderr"
 
 [[pipeline]]

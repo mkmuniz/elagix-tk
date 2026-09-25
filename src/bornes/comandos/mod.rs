@@ -109,6 +109,18 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         camada_b::Stream::Stderr,
     );
 
+    // No filter for this command at all: hand over to the real binary with
+    // live output. Capturing would hold back EVERYTHING until the process
+    // exits — found 2026-09-24: `pnpm dev`/`npm run dev` (servers that never
+    // exit) showed the agent nothing at all while running.
+    if subcommand.is_none() && camada_b_match.is_none() && stderr_match.is_none() {
+        if let Err(e) = shim::exec_passthrough(&real_bin, rest_args) {
+            eprintln!("elagix: failed to run {invoked_name}: {e}");
+            return ExitCode::FAILURE;
+        }
+        return ExitCode::SUCCESS; // unreachable on Unix (exec replaces the process)
+    }
+
     let captured = match shim::run_captured(&real_bin, &run_args, stderr_match.is_some()) {
         Ok(c) => c,
         Err(e) => {

@@ -270,3 +270,49 @@ fn compress_meta_command_summarizes_stdin() {
     assert!(out.status.success());
     assert_eq!(text.trim().matches('.').count(), 1, "{text}");
 }
+
+/// A long-running command with no filter (a dev server) must stream its
+/// output live — capturing it would show the agent nothing until exit.
+#[test]
+fn unfiltered_long_running_command_streams_live() {
+    use std::io::{BufRead, BufReader};
+    use std::time::{Duration, Instant};
+
+    let sb = Sandbox::new();
+    let path = sb.root.join("real").join("pnpm");
+    fs::write(&path, "#!/bin/sh\necho ready\nsleep 30\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    sb.shim("pnpm");
+
+    let mut child = Command::new(sb.shims().join("pnpm"))
+        .arg("dev")
+        .env_clear()
+        .env(
+            "PATH",
+            format!(
+                "{}:{}:/usr/bin:/bin",
+                sb.shims().display(),
+                sb.root.join("real").display()
+            ),
+        )
+        .env("HOME", &sb.root)
+        .env("ELAGIX_SHIMS_DIR", sb.shims())
+        .env("ELAGIX_STORE_DIR", sb.root.join("store"))
+        .env("CLAUDECODE", "1")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let elapsed = start.elapsed();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(line, "ready\n");
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "output was buffered ({elapsed:?})"
+    );
+}

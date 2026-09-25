@@ -1,9 +1,11 @@
-# Layer B — `dotnet build|test|run|restore|publish`. Validated against real
+# Layer B — `dotnet build|test|restore|publish`. Validated against real
 # output (2026-09-24): restore chatter and the elapsed time are noise; the
 # "Build succeeded." / warning and error counts and the diagnostics
 # themselves are what the agent needs.
+# No `run`: it often starts a long-lived server, and filtering means
+# buffering its output until it exits.
 match_command = "dotnet"
-match_args_prefix = ["build|test|run|restore|publish"]
+match_args_prefix = ["build|test|restore|publish"]
 
 [[pipeline]]
 action = "strip_ansi"
