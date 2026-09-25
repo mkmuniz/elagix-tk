@@ -1,6 +1,6 @@
 <div align="center">
 
-# Schliffe
+<img src="assets/schliffe-logo.svg" width="600" alt="schliffe — cut the noise, keep the signal">
 
 **Cuts token waste in coding-agent sessions (Claude Code) — for real, without depending on Claude Code features we've already proven broken.**
 
