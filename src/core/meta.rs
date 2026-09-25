@@ -60,6 +60,10 @@ pub fn run(args: &[String]) -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        [cmd] if cmd == "--version" || cmd == "version" => {
+            println!("elagix {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
         [cmd] if cmd == "stats" => {
             print!("{}", crate::core::stats::report());
             ExitCode::SUCCESS
@@ -85,7 +89,7 @@ pub fn run(args: &[String]) -> ExitCode {
         },
         _ => {
             eprintln!(
-                "usage: elagix stats | elagix show <hash> | elagix store clear | elagix store gc | elagix compress [--sentences N]"
+                "usage: elagix --version | elagix stats | elagix show <hash> | elagix store clear | elagix store gc | elagix compress [--sentences N]"
             );
             ExitCode::FAILURE
         }
