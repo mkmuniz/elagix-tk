@@ -19,8 +19,16 @@ use std::process::{Command, Stdio};
 ///
 /// Business rule 7 (specs.md §4): always inherits the same $PATH as the
 /// parent process, never resolves a binary on its own outside of that.
+///
+/// Second guard (found live on macOS, 2026-09-24): skipping the shims folder
+/// isn't enough on its own — with `ELAGIX_SHIMS_DIR` pointing somewhere else
+/// while `~/.elagix/shims` was still in PATH, the shim resolved ITSELF as the
+/// real `git` and re-invoked itself until the OS refused to fork (EAGAIN).
+/// So any candidate that is this very executable (after following symlinks)
+/// is skipped too, whatever folder it sits in.
 pub fn resolve_real_binary(name: &str) -> Option<PathBuf> {
     let own_dir = shims_dir();
+    let own_exe = env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     let path_var = env::var_os("PATH")?;
 
     for dir in env::split_paths(&path_var) {
@@ -29,6 +37,9 @@ pub fn resolve_real_binary(name: &str) -> Option<PathBuf> {
             continue;
         }
         let candidate = dir.join(name);
+        if own_exe.is_some() && candidate.canonicalize().ok() == own_exe {
+            continue;
+        }
         if is_executable(&candidate) {
             return Some(candidate);
         }

@@ -37,7 +37,7 @@ Every percentage below is a real measurement, taken by running the binary agains
 | Command | Raw | Elagix | Reduction |
 |---|---|---|---|
 | `git status` (clean branch) | 174 B | 28 B | 84% |
-| `git log -5` | 9,313 B | 204 B | 97.8% |
+| `git log -5` | 9,313 B | 907 B | 90.3% (one line per commit — all 5 stay visible) |
 | `git show` (6-file diff) | 32,001 B | 5,740 B | 82.1% (RTK: 71.4% on the same diff) |
 | `pytest` (collection error) | 3,245 B | 106 B | 96.7% (preserves the real error reason; RTK doesn't) |
 | `docker images` (21 images) | 1,782 B | 1,234 B | 30.8% |
@@ -67,7 +67,9 @@ cd elagix-tk
 ```
 > ⚠️ `install.ps1` has only been tested in safe mode (no full activation) — none of this project's development machines have native `git`/`cargo`/`npm` on Windows to validate it end to end. See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
 
-After installing, open a new terminal. No need to prefix anything — `git status`, `git log`, `cargo test`, etc. already come out filtered automatically.
+After installing, open a new terminal (and reload VS Code / start a new Claude Code session). No need to prefix anything — when an AI agent runs `git status`, `git log`, `cargo test`, etc., the output already comes out filtered. Humans and regular scripts get the untouched output.
+
+Opt-in/out per tool: `ELAGIX_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `ELAGIX_DISABLE=1` turns it off (e.g. `ELAGIX_DISABLE=1 git diff > x.patch`).
 
 ## How it works
 
@@ -79,10 +81,10 @@ sequenceDiagram
     participant RealGit as real git (original PATH)
     Claude->>Shell: runs "git status" (no prefix)
     Shell->>Shim: resolves "git" -> the shim (ahead in PATH)
-    Shim->>Shim: is stdout a TTY (human) or a pipe (agent)?
-    alt TTY — interactive human use
+    Shim->>Shim: is stdout a TTY, or is no AI agent calling?
+    alt TTY or no agent (human, VS Code Git panel, git hooks, scripts)
         Shim->>RealGit: exec directly, no filtering
-    else pipe — Claude Code capturing
+    else AI agent capturing (CLAUDECODE / AI_AGENT / ELAGIX_FORCE set)
         Shim->>RealGit: runs the real git, captures stdout + exit code
         RealGit-->>Shim: raw output
         Shim->>Shim: Layer A (dedicated parser) or Layer B (declarative rule)
