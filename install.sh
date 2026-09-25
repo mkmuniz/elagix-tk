@@ -47,6 +47,17 @@ if [ ! -x "$BIN_PATH" ]; then
     exit 1
 fi
 
+# Installs a COPY of the binary outside the repo: shims pointing straight at
+# target/release would all break (git/npm/... "not found" in every shell)
+# the moment someone runs `cargo clean` while developing Elagix itself.
+INSTALL_BIN_DIR="${ELAGIX_BIN_DIR:-$HOME/.elagix/bin}"
+mkdir -p "$INSTALL_BIN_DIR"
+# Copy to a temp name then rename: replacing the file in place would break
+# shims that are running right now.
+cp "$BIN_PATH" "$INSTALL_BIN_DIR/elagix.new"
+mv -f "$INSTALL_BIN_DIR/elagix.new" "$INSTALL_BIN_DIR/elagix"
+BIN_PATH="$INSTALL_BIN_DIR/elagix"
+
 mkdir -p "$SHIMS_DIR"
 # Only shims commands that actually exist on this machine (looked up with the
 # shims folder removed from PATH, so a re-run doesn't find its own shims): a
