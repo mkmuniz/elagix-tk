@@ -42,13 +42,38 @@ pub fn compress_tools_call_result(
     tool_name: &str,
     store: impl Fn(&str) -> String,
 ) -> Value {
-    if is_raw_tool(tool_name) {
-        return msg.clone();
-    }
     let Some(content) = msg.pointer("/result/content").and_then(Value::as_array) else {
         return msg.clone();
     };
+    let Some(new_content) = compress_content_blocks(content, tool_name, store) else {
+        return msg.clone();
+    };
 
+    let mut out = msg.clone();
+    out["result"]["content"] = Value::Array(new_content);
+
+    // Business rule 6 on the whole message, not just the text block.
+    let orig_len = serde_json::to_string(msg)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    let new_len = serde_json::to_string(&out)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    if new_len < orig_len { out } else { msg.clone() }
+}
+
+/// The content-block part of `compress_tools_call_result`, shared with the
+/// Claude Code hook (`bornes/hook`), which receives MCP results as a bare
+/// array of content blocks instead of a JSON-RPC message. `None` when
+/// nothing changed (or the tool reads files and must stay untouched).
+pub fn compress_content_blocks(
+    content: &[Value],
+    tool_name: &str,
+    store: impl Fn(&str) -> String,
+) -> Option<Vec<Value>> {
+    if is_raw_tool(tool_name) {
+        return None;
+    }
     let mut new_content = Vec::with_capacity(content.len());
     let mut changed = false;
     let mut hints = Vec::new();
@@ -63,9 +88,8 @@ pub fn compress_tools_call_result(
             new_content.push(block.clone());
         }
     }
-
     if !changed {
-        return msg.clone();
+        return None;
     }
     for hash in hints {
         new_content.push(serde_json::json!({
@@ -73,18 +97,7 @@ pub fn compress_tools_call_result(
             "text": format!("(elagix trimmed this result — full output: elagix show {hash})"),
         }));
     }
-
-    let mut out = msg.clone();
-    out["result"]["content"] = Value::Array(new_content);
-
-    // Business rule 6 on the whole message, not just the text block.
-    let orig_len = serde_json::to_string(msg)
-        .map(|s| s.len())
-        .unwrap_or(usize::MAX);
-    let new_len = serde_json::to_string(&out)
-        .map(|s| s.len())
-        .unwrap_or(usize::MAX);
-    if new_len < orig_len { out } else { msg.clone() }
+    Some(new_content)
 }
 
 /// Only compresses `{"type": "text", "text": "<json>"}` blocks whose text is

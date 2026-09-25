@@ -26,6 +26,7 @@ Elagix does this with a **`$PATH` shim** (the same decades-old technique used by
 |---|---|---|---|
 | `bornes/comandos` | Output of `git`, `cargo`, `pytest`, `docker`, `npm`, `pnpm`, `yarn`, `pip`, `dotnet`, `go`, `terraform` | `$PATH` shim — intercepts, filters, returns | ✅ Active, validated live |
 | `bornes/mcp` | MCP tool schema (lazy loading) + call result | JSON-RPC proxy over stdio | ✅ Validated against a real server (`@modelcontextprotocol/server-filesystem`); opt-in per server |
+| `bornes/hook` | Remote MCP results (HTTP/OAuth servers like Figma) + large images (MCP screenshots, images opened with Read) | Claude Code `PostToolUse` hook (`updatedToolOutput`) | ✅ macOS / Linux / WSL — ⚠️ **not native Windows** |
 | `bornes/prosa` | Commit message body (`git log`/`git show`) | TF-IDF extractive summarization (no model, no embeddings) | ✅ Active, integrated into `comandos`'s Layer A |
 
 Any other command (`ls`, `curl`, `make`, `jq`, ...) passes straight through, unfiltered — see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for full coverage details and what's missing.
@@ -76,6 +77,23 @@ cd elagix-tk
 After installing, open a new terminal (and reload VS Code / start a new Claude Code session). No need to prefix anything — when an AI agent runs `git status`, `git log`, `cargo test`, etc., the output already comes out filtered. Humans and regular scripts get the untouched output.
 
 Opt-in/out per tool: `ELAGIX_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `ELAGIX_DISABLE=1` turns it off (e.g. `ELAGIX_DISABLE=1 git diff > x.patch`).
+
+## Remote MCP servers and images (Claude Code hook)
+
+Some things never touch a shell or a local MCP pipe: **remote MCP servers** (HTTP + OAuth, e.g. Figma, `https://mcp.figma.com/mcp`) and **images** Claude opens with its Read tool or receives from an MCP tool (screenshots). For those, Elagix plugs into Claude Code as a `PostToolUse` hook. Run once:
+
+```bash
+elagix hook install     # adds the hook to ~/.claude/settings.json (backup kept); `elagix hook uninstall` removes it
+```
+
+then open a new Claude Code session. After each `Read` or `mcp__*` call, Claude Code hands the result to `elagix hook post-tool-use`, which:
+
+- compresses JSON text results of MCP tools (same rules as the stdio proxy: nulls dropped, long strings/arrays trimmed with an `elagix show` hint; file-reading tools never touched);
+- shrinks images whose long edge exceeds 1280px (`ELAGIX_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area and the API already caps them around 1568px, so a full Retina screenshot goes from ~1.5k to ~1k tokens (about -33%) — UI text stays readable.
+
+Anything it doesn't recognize is left untouched (for built-in tools, Claude Code also discards a replacement that doesn't match the tool's output schema).
+
+> ⚠️ **Not supported on native Windows** — Claude Code's hook output replacement was verified broken there (the reason this project avoided hooks in the first place). Works on macOS, Linux and WSL; `elagix hook install` refuses to run on native Windows.
 
 ## Checking that it's saving
 

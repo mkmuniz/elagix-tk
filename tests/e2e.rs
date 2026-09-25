@@ -335,3 +335,105 @@ fn stats_record_agent_commands_only_without_arguments() {
     assert!(report.contains("top savings"), "{report}");
     assert!(report.contains("git push 1×"), "{report}");
 }
+
+fn run_with_stdin(sb: &Sandbox, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Output {
+    use std::io::Write;
+    let mut cmd = Command::new(sb.shims().join("elagix"));
+    cmd.args(args)
+        .env_clear()
+        .env("HOME", &sb.root)
+        .env("ELAGIX_STORE_DIR", sb.root.join("store"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn hook_replaces_remote_mcp_output_and_ignores_the_rest() {
+    let sb = Sandbox::new();
+    let items: Vec<String> = (0..200)
+        .map(|i| format!(r#"{{"id":{i},"name":"node {i}","parent":null}}"#))
+        .collect();
+    let payload = format!(r#"{{"nodes":[{}]}}"#, items.join(","));
+    let input = serde_json_string(&[
+        ("tool_name", "\"mcp__figma__get_metadata\"".into()),
+        (
+            "tool_response",
+            format!(r#"[{{"type":"text","text":{}}}]"#, json_str(&payload)),
+        ),
+    ]);
+    let out = run_with_stdin(&sb, &["hook", "post-tool-use"], &input, &[]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains(r#""hookEventName":"PostToolUse""#), "{text}");
+    assert!(text.contains("updatedToolOutput"));
+    assert!(!text.contains("parent"));
+    assert!(text.len() < input.len());
+
+    // A tool Elagix doesn't handle: no output at all = original kept.
+    let bash = r#"{"tool_name":"Bash","tool_response":{"stdout":"hi"}}"#;
+    let out = run_with_stdin(&sb, &["hook", "post-tool-use"], bash, &[]);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "");
+
+    // Garbage in: still exit 0, no output (never breaks a tool call).
+    let out = run_with_stdin(&sb, &["hook", "post-tool-use"], "not json", &[]);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "");
+}
+
+#[test]
+fn hook_install_and_uninstall_keep_other_settings() {
+    let sb = Sandbox::new();
+    let settings = sb.root.join("claude-settings.json");
+    fs::write(
+        &settings,
+        r#"{"model":"opus","hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"my-linter"}]}]}}"#,
+    )
+    .unwrap();
+    let env = [("ELAGIX_CLAUDE_SETTINGS", settings.to_str().unwrap())];
+
+    for _ in 0..2 {
+        // twice: must stay a single entry
+        let out = run_with_stdin(&sb, &["hook", "install"], "", &env);
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+    let after = fs::read_to_string(&settings).unwrap();
+    assert_eq!(after.matches("hook post-tool-use").count(), 1, "{after}");
+    assert!(after.contains("\"model\": \"opus\"") && after.contains("my-linter"));
+    assert!(after.contains("Read|mcp__.*"));
+
+    let out = run_with_stdin(&sb, &["hook", "uninstall"], "", &env);
+    assert!(out.status.success());
+    let after = fs::read_to_string(&settings).unwrap();
+    assert!(!after.contains("post-tool-use") && after.contains("my-linter"));
+}
+
+fn json_str(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn serde_json_string(fields: &[(&str, String)]) -> String {
+    let body: Vec<String> = fields.iter().map(|(k, v)| format!("\"{k}\":{v}")).collect();
+    format!("{{{}}}", body.join(","))
+}

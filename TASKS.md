@@ -32,7 +32,9 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 - [x] Test against a real production MCP server — `@modelcontextprotocol/server-filesystem` (2026-09-24): `tools/list` −77%, `get_tool_schema` round trip OK. Found and fixed: JSON *file contents* were being compressed (corruption risk) — file-reading tools are now never touched.
 - [x] Document wrapping an MCP server (README, "Using the MCP proxy"). Automatic rewriting of client configs left out on purpose — editing `~/.claude.json` behind the user's back is riskier than one `claude mcp add` line.
-- [ ] Support OAuth and remote HTTP streaming (stdio only today).
+- [x] Remote MCP servers (HTTP/OAuth, e.g. Figma) — covered by the Claude Code `PostToolUse` hook (`bornes/hook`, 2026-09-25) instead of a proxy: Claude Code keeps doing OAuth, Elagix rewrites the result. macOS/Linux/WSL only.
+- [x] Images (MCP screenshots, Read on PNG/JPEG) shrunk to a 1280px long edge by the same hook.
+- [ ] Confirm the exact shape of Claude Code's Read result for images on a live session (undocumented; the hook detects base64 image data generically — check `elagix stats` shows `image (Read)` after reading a large screenshot).
 - [ ] Field pruning by semantic relevance (pagination, HATEOAS links, redundant timestamps) — today only the 3 mechanical techniques (null-strip, truncation, array cap).
 - [ ] Handle/compress requests initiated by the MCP server itself (e.g. `sampling/createMessage`) — pass straight through today.
 - [x] Server dying mid-call — pending requests now get a JSON-RPC error (validated live, 0.02s) instead of hanging forever.

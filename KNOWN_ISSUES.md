@@ -30,7 +30,7 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 
 - **Validated against one real MCP server only** (`@modelcontextprotocol/server-filesystem`, 2026-09-24). Other servers may shape results differently. File-reading tools are detected by name (`read`/`file`/`cat`/`open`/`download`/`blob`), which is a heuristic: a tool returning file content under another name would still get its JSON compacted — add it to `ELAGIX_MCP_RAW_TOOLS`.
 - **Schema lazy-loading overlaps with Claude Code's own tool deferral.** Use `--keep-schemas` there (see README); lazy-loading is still the default for other clients.
-- **Stdio only.** OAuth and remote HTTP streaming aren't supported (specs §13, an explicit v1 scope decision).
+- **The stdio proxy is stdio only; remote servers go through the hook.** HTTP/OAuth servers (e.g. Figma) are handled by the Claude Code `PostToolUse` hook (`elagix hook install`), which only works where Claude Code honors `updatedToolOutput`: macOS, Linux, WSL — **not native Windows**.
 - **No field pruning by semantic relevance** (pagination, HATEOAS links, redundant timestamps) — only the 3 purely mechanical techniques (null-strip, string truncation, array cap). Pruning by relevance would require knowing the specific API, which would go against business rule 5.
 - **Requests the MCP server itself initiates** (e.g. `sampling/createMessage`) pass straight through with no interception or compression — not the token-waste axis that motivated this borne, but also not addressed.
 
@@ -50,3 +50,12 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 ## Still-open decisions
 
 - None remaining that block current use — the last one ("final name") was resolved: **the project's name is Elagix**, formally confirmed (see specs.md §13).
+
+
+## `bornes/hook` (Claude Code hook)
+
+- **Not native Windows** — see above.
+- **Read's image result shape is undocumented.** The hook finds base64 image data generically; if Claude Code changes the shape, the replacement is discarded by Claude Code's schema check and the original image is used (safe, just no savings). `ELAGIX_HOOK_DUMP=<dir>` in the hook command's environment saves each hook input for diagnosis.
+- **Only PNG and JPEG are resized** (WebP/GIF left as-is, so the declared media type never changes).
+- **Adds ~0.5–1s after reading a very large image** (decode + resize + encode); text reads and non-image tools cost a few milliseconds.
+- **Image savings are modest by design** (~-33% on a Retina screenshot): the API already caps images around 1568px, and going below 1280px would make UI text hard to read.

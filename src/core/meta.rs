@@ -64,6 +64,9 @@ pub fn run(args: &[String]) -> ExitCode {
             println!("elagix {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        [cmd, sub] if cmd == "hook" && sub == "post-tool-use" => bornes::hook::run_post_tool_use(),
+        [cmd, sub] if cmd == "hook" && sub == "install" => bornes::hook::install(),
+        [cmd, sub] if cmd == "hook" && sub == "uninstall" => bornes::hook::uninstall(),
         [cmd] if cmd == "stats" => {
             print!("{}", crate::core::stats::report());
             ExitCode::SUCCESS
@@ -89,7 +92,7 @@ pub fn run(args: &[String]) -> ExitCode {
         },
         _ => {
             eprintln!(
-                "usage: elagix --version | elagix stats | elagix show <hash> | elagix store clear | elagix store gc | elagix compress [--sentences N]"
+                "usage: elagix --version | elagix stats | elagix hook install|uninstall | elagix show <hash> | elagix store clear | elagix store gc | elagix compress [--sentences N]"
             );
             ExitCode::FAILURE
         }

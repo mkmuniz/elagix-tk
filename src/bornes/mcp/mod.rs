@@ -1,4 +1,4 @@
-mod compress;
+pub mod compress;
 mod schema;
 
 use serde_json::{Value, json};
