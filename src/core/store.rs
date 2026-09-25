@@ -11,18 +11,18 @@ const MAX_AGE_DAYS: u64 = 14;
 const SWEEP_SAMPLE_RATE: u64 = 50; // ~2% chance of sweeping on any given write
 
 fn store_root() -> PathBuf {
-    if let Ok(dir) = std::env::var("ELAGIX_STORE_DIR") {
+    if let Ok(dir) = std::env::var("SCHLIFFE_STORE_DIR") {
         return PathBuf::from(dir);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".elagix").join("store")
+    PathBuf::from(home).join(".schliffe").join("store")
 }
 
 fn hash_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     // 16 hex chars (64 bits) — negligible collision risk for the volume
     // estimated in specs §8.5 (~100 entries/day), short enough to quote in
-    // text (e.g. "elagix show a3f9c2d1e8b04f77").
+    // text (e.g. "schliffe show a3f9c2d1e8b04f77").
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
@@ -185,19 +185,19 @@ mod tests {
 
     // $HOME is global to the process — store tests need to run serialized
     // with an isolated directory, otherwise they run in parallel and stomp
-    // on the same real `~/.elagix/store`.
+    // on the same real `~/.schliffe/store`.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_isolated_store<T>(f: impl FnOnce() -> T) -> T {
         let _guard = TEST_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("elagix-store-test-{}", now_secs()));
+        let dir = std::env::temp_dir().join(format!("schliffe-store-test-{}", now_secs()));
         unsafe {
-            std::env::set_var("ELAGIX_STORE_DIR", &dir);
+            std::env::set_var("SCHLIFFE_STORE_DIR", &dir);
         }
         let result = f();
         let _ = fs::remove_dir_all(&dir);
         unsafe {
-            std::env::remove_var("ELAGIX_STORE_DIR");
+            std::env::remove_var("SCHLIFFE_STORE_DIR");
         }
         result
     }

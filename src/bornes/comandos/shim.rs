@@ -3,7 +3,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Resolves the real binary for `name` in $PATH, skipping Elagix's own shims folder.
+/// Resolves the real binary for `name` in $PATH, skipping Schliffe's own shims folder.
 ///
 /// Real bug found and fixed this session (2026-07-26): the first version
 /// tried to *discover* its own folder from `argv[0]`, assuming the shell
@@ -14,15 +14,15 @@ use std::process::{Command, Stdio};
 /// twice).
 ///
 /// Fix: don't *discover* the shims folder, **know** it ahead of time — it's
-/// Elagix itself that creates the symlinks there during installation, so
+/// Schliffe itself that creates the symlinks there during installation, so
 /// there's no need to infer anything at runtime.
 ///
 /// Business rule 7 (specs.md §4): always inherits the same $PATH as the
 /// parent process, never resolves a binary on its own outside of that.
 ///
 /// Second guard (found live on macOS, 2026-09-24): skipping the shims folder
-/// isn't enough on its own — with `ELAGIX_SHIMS_DIR` pointing somewhere else
-/// while `~/.elagix/shims` was still in PATH, the shim resolved ITSELF as the
+/// isn't enough on its own — with `SCHLIFFE_SHIMS_DIR` pointing somewhere else
+/// while `~/.schliffe/shims` was still in PATH, the shim resolved ITSELF as the
 /// real `git` and re-invoked itself until the OS refused to fork (EAGAIN).
 /// So any candidate that is this very executable (after following symlinks)
 /// is skipped too, whatever folder it sits in.
@@ -56,16 +56,16 @@ pub fn resolve_real_binary(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Folder where Elagix's shims live — configurable via `ELAGIX_SHIMS_DIR` to
+/// Folder where Schliffe's shims live — configurable via `SCHLIFFE_SHIMS_DIR` to
 /// make testing easier (several installs side by side), defaulting to
-/// `~/.elagix/shims`. Canonicalized to compare reliably against `$PATH`
+/// `~/.schliffe/shims`. Canonicalized to compare reliably against `$PATH`
 /// entries (which can have different forms of the same path).
 fn shims_dir() -> Option<PathBuf> {
-    let raw = match env::var_os("ELAGIX_SHIMS_DIR") {
+    let raw = match env::var_os("SCHLIFFE_SHIMS_DIR") {
         Some(v) => PathBuf::from(v),
         None => {
             let home = env::var_os("HOME")?;
-            PathBuf::from(home).join(".elagix").join("shims")
+            PathBuf::from(home).join(".schliffe").join("shims")
         }
     };
     Some(raw.canonicalize().unwrap_or(raw))
@@ -94,17 +94,17 @@ pub fn stdout_is_tty() -> bool {
 /// npm scripts also call `git log`/`git diff`/`npm` through a pipe, and would
 /// get truncated output they can't parse. Agents mark their shell
 /// environment: Claude Code sets `CLAUDECODE=1`, and `AI_AGENT` is a generic
-/// marker other agents are adopting. `ELAGIX_FORCE=1` opts any other tool in,
-/// `ELAGIX_DISABLE=1` turns filtering off even inside an agent.
+/// marker other agents are adopting. `SCHLIFFE_FORCE=1` opts any other tool in,
+/// `SCHLIFFE_DISABLE=1` turns filtering off even inside an agent.
 pub fn agent_active() -> bool {
     agent_active_from(|name| env::var_os(name).filter(|v| !v.is_empty()).is_some())
 }
 
 fn agent_active_from(is_set: impl Fn(&str) -> bool) -> bool {
-    if is_set("ELAGIX_DISABLE") {
+    if is_set("SCHLIFFE_DISABLE") {
         return false;
     }
-    ["ELAGIX_FORCE", "CLAUDECODE", "AI_AGENT"]
+    ["SCHLIFFE_FORCE", "CLAUDECODE", "AI_AGENT"]
         .iter()
         .any(|name| is_set(name))
 }
@@ -176,14 +176,14 @@ mod tests {
     fn agent_markers_enable_filtering() {
         assert!(agent_active_from(with_vars(&["CLAUDECODE"])));
         assert!(agent_active_from(with_vars(&["AI_AGENT"])));
-        assert!(agent_active_from(with_vars(&["ELAGIX_FORCE"])));
+        assert!(agent_active_from(with_vars(&["SCHLIFFE_FORCE"])));
     }
 
     #[test]
     fn disable_wins_over_agent_markers() {
         assert!(!agent_active_from(with_vars(&[
             "CLAUDECODE",
-            "ELAGIX_DISABLE"
+            "SCHLIFFE_DISABLE"
         ])));
     }
 }

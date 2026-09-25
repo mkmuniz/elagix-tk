@@ -4,25 +4,25 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Savings log behind `elagix stats` — answers "is Elagix actually saving
+/// Savings log behind `schliffe stats` — answers "is Schliffe actually saving
 /// anything while I work?" (2026-09-24). One tab-separated line per agent
-/// command that reached Elagix: `<unix ts>\t<key>\t<bytes before>\t<bytes
+/// command that reached Schliffe: `<unix ts>\t<key>\t<bytes before>\t<bytes
 /// after>`, where a passthrough (no filter for that command) is logged with
 /// both sizes as `-`. Only sizes and the command name (e.g. `git log`,
 /// `pnpm build`) are stored — never arguments or output, which may contain
-/// secrets. Kept outside the store (`elagix store clear` doesn't wipe it);
-/// `ELAGIX_NO_STATS=1` turns it off.
+/// secrets. Kept outside the store (`schliffe store clear` doesn't wipe it);
+/// `SCHLIFFE_NO_STATS=1` turns it off.
 const MAX_AGE_DAYS: u64 = 90;
 /// Past this size the log is compacted (entries older than MAX_AGE_DAYS
 /// dropped) on the next write — keeps it bounded without a daemon.
 const COMPACT_ABOVE_BYTES: u64 = 4 * 1024 * 1024;
 
 fn stats_file() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("ELAGIX_STATS_FILE") {
+    if let Ok(p) = std::env::var("SCHLIFFE_STATS_FILE") {
         return Some(PathBuf::from(p));
     }
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".elagix").join("stats.log"))
+    Some(PathBuf::from(home).join(".schliffe").join("stats.log"))
 }
 
 fn now_secs() -> u64 {
@@ -33,7 +33,7 @@ fn now_secs() -> u64 {
 }
 
 fn disabled() -> bool {
-    std::env::var_os("ELAGIX_NO_STATS").is_some_and(|v| !v.is_empty())
+    std::env::var_os("SCHLIFFE_NO_STATS").is_some_and(|v| !v.is_empty())
 }
 
 /// Short, argument-free name for a command: `git log`, `pnpm build`,
@@ -60,7 +60,7 @@ pub fn command_key(invoked_name: &str, args: &[String]) -> String {
     key.replace(['\t', '\n'], " ")
 }
 
-/// Records a filtered command: sizes before and after Elagix.
+/// Records a filtered command: sizes before and after Schliffe.
 pub fn record(key: &str, before: usize, after: usize) {
     append(&format!("{}\t{key}\t{before}\t{after}\n", now_secs()));
 }
@@ -171,7 +171,7 @@ fn human_tokens(bytes: u64) -> String {
     }
 }
 
-/// The `elagix stats` report.
+/// The `schliffe stats` report.
 pub fn report() -> String {
     let path = stats_file();
     let content = path
@@ -186,15 +186,15 @@ fn report_from(content: &str, now: u64, disabled: bool) -> String {
     let mut out = String::new();
     if disabled {
         out.push_str(
-            "elagix: stats are OFF (ELAGIX_NO_STATS is set) — nothing new is recorded\n\n",
+            "schliffe: stats are OFF (SCHLIFFE_NO_STATS is set) — nothing new is recorded\n\n",
         );
     }
     if entries.is_empty() {
         out.push_str(
-            "elagix: no agent commands recorded yet.\n\
+            "schliffe: no agent commands recorded yet.\n\
              Commands are recorded when an AI agent (Claude Code, or anything setting\n\
-             AI_AGENT / ELAGIX_FORCE) runs a shimmed command. Check it's active in the\n\
-             agent's shell with `which git` — it should print ~/.elagix/shims/git.\n",
+             AI_AGENT / SCHLIFFE_FORCE) runs a shimmed command. Check it's active in the\n\
+             agent's shell with `which git` — it should print ~/.schliffe/shims/git.\n",
         );
         return out;
     }
@@ -204,7 +204,7 @@ fn report_from(content: &str, now: u64, disabled: bool) -> String {
         ("last 7 days", now.saturating_sub(7 * 24 * 3600)),
         ("all time", 0),
     ];
-    out.push_str("elagix stats — commands run by AI agents\n\n");
+    out.push_str("schliffe stats — commands run by AI agents\n\n");
     out.push_str(&format!(
         "{:<12} {:>8} {:>8} {:>10} {:>10} {:>6} {:>13}\n",
         "", "commands", "filtered", "before", "after", "saved", "~tokens saved"

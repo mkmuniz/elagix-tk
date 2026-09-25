@@ -97,7 +97,7 @@ pub enum Step {
     CompactPath,
     /// Replaces every line matching any pattern with ONE marker, at the
     /// position of the first match: `[+N lines omitted: <label>]` — which
-    /// also triggers the `elagix show` recovery hint.
+    /// also triggers the `schliffe show` recovery hint.
     CollapseLinesMatching {
         patterns: Vec<String>,
         label: String,
@@ -110,7 +110,7 @@ pub enum Step {
 /// Filters embedded in the binary (specs.md §5.2 — long tail without needing
 /// a dedicated parser). Adding a new command here still requires a
 /// recompile, but the engine itself (engine.rs) doesn't change — the real
-/// "no recompile" extension point is `$ELAGIX_FILTERS_DIR` (see `load_all`),
+/// "no recompile" extension point is `$SCHLIFFE_FILTERS_DIR` (see `load_all`),
 /// where new `.toml` files are read at runtime.
 macro_rules! embedded {
     ($($name:literal),* $(,)?) => {
@@ -143,7 +143,7 @@ const EMBEDDED: &[(&str, &str)] = embedded![
 ];
 
 /// Loads the embedded filters plus any extra `.toml` in
-/// `$ELAGIX_FILTERS_DIR` (default `~/.elagix/filters`). Business rule 3
+/// `$SCHLIFFE_FILTERS_DIR` (default `~/.schliffe/filters`). Business rule 3
 /// (fail-open): a malformed `.toml` file is ignored with a warning on
 /// stderr, never brings down the whole process.
 pub fn load_all() -> Vec<FilterFile> {
@@ -152,7 +152,7 @@ pub fn load_all() -> Vec<FilterFile> {
     for (name, raw) in EMBEDDED {
         match toml::from_str::<FilterFile>(raw) {
             Ok(f) => out.push(f),
-            Err(e) => eprintln!("elagix: embedded filter '{name}' is invalid, skipping: {e}"),
+            Err(e) => eprintln!("schliffe: embedded filter '{name}' is invalid, skipping: {e}"),
         }
     }
 
@@ -170,7 +170,7 @@ pub fn load_all() -> Vec<FilterFile> {
             {
                 Some(f) => out.push(f),
                 None => eprintln!(
-                    "elagix: filter '{}' is invalid or unreadable, skipping",
+                    "schliffe: filter '{}' is invalid or unreadable, skipping",
                     path.display()
                 ),
             }
@@ -181,12 +181,12 @@ pub fn load_all() -> Vec<FilterFile> {
 }
 
 fn external_filters_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("ELAGIX_FILTERS_DIR") {
+    if let Ok(dir) = std::env::var("SCHLIFFE_FILTERS_DIR") {
         return Some(PathBuf::from(dir));
     }
     std::env::var("HOME")
         .ok()
-        .map(|home| PathBuf::from(home).join(".elagix").join("filters"))
+        .map(|home| PathBuf::from(home).join(".schliffe").join("filters"))
 }
 
 use std::path::PathBuf;
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn cargo_stderr_keeps_diagnostics() {
-        let raw = "   Compiling regex v1.13.1\n   Compiling elagix v0.1.0 (/x)\nwarning: unused variable: `a`\n --> src/main.rs:2:9\n    Finished `dev` profile [unoptimized] target(s) in 3.1s\n";
+        let raw = "   Compiling regex v1.13.1\n   Compiling schliffe v0.1.0 (/x)\nwarning: unused variable: `a`\n --> src/main.rs:2:9\n    Finished `dev` profile [unoptimized] target(s) in 3.1s\n";
         let out = engine::apply(&embedded("cargo-stderr").pipeline, raw, 0);
         assert!(!out.contains("Compiling"));
         assert!(out.contains("warning: unused variable"));

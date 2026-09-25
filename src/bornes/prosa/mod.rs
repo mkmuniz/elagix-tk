@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 /// `bornes/prosa` (specs.md §7) — TF-IDF extractive summarization. Has no
 /// interception mechanism of its own (specs §7.1): it's a pure function,
 /// called by `bornes/comandos` (commit message body in `git log`/`git
-/// show`) and available as a standalone utility (`elagix compress`).
+/// show`) and available as a standalone utility (`schliffe compress`).
 /// Explicit decision from specs §7.1: extractive strategy only — scores
 /// sentences by TF-IDF and keeps the highest-scoring ones, no trained
 /// model, no embeddings.
@@ -72,7 +72,7 @@ pub fn commit_body_line(body_lines: &[&str]) -> (&'static str, String) {
 }
 
 /// Suggested sentence cap for when the caller doesn't know ahead of time how
-/// much to cut (used by `elagix compress`, the standalone utility) — keeps
+/// much to cut (used by `schliffe compress`, the standalone utility) — keeps
 /// roughly 1/3 of the original sentences, at least 1.
 pub fn suggested_sentence_budget(text: &str) -> usize {
     let n = split_sentences(text.trim()).len();

@@ -1,8 +1,8 @@
-# Elagix — Milestones
+# Schliffe — Milestones
 
 Each milestone references the `specs.md` section that already settles the technique — this file is just delivery sequencing, not a new decision.
 
-- [x] **M0 — Scaffold**: Rust project at `~/projects/elagix` (repo root, outside `bench/`), clean `cargo build`. *(done, 2026-07-26)*
+- [x] **M0 — Scaffold**: Rust project at `~/projects/schliffe` (repo root, outside `bench/`), clean `cargo build`. *(done, 2026-07-26)*
 - [x] **M1 — Interception mechanism**: PATH shim working — TTY detection, real-binary resolution, passthrough vs. capture. (specs §5.1) *(done, 2026-07-26)*
 - [x] **M2 — Layer A complete**: `git status`, `git log`, `git diff`/`git show`, `pytest`, `cargo test` — the 5 commands validated in the audit (specs §10). All tested live against the real RTK (see "Validated" section below). (specs §5.4) *(done, 2026-07-26)*
 - [x] **M3 — Layer B (declarative pipeline)**: generic rule engine for the long tail, TOML format (decided in specs §13). (specs §5.2/5.3) *(done, 2026-07-26)*
@@ -14,9 +14,9 @@ Each milestone references the `specs.md` section that already settles the techni
 
 ## Validated live this session (2026-07-26)
 
-Tested against the real `bastion-agent` repository, via the shim installed at `~/.elagix/shims/` (`git`/`pytest` symlinks pointing at the release binary):
+Tested against the real `bastion-agent` repository, via the shim installed at `~/.schliffe/shims/` (`git`/`pytest` symlinks pointing at the release binary):
 
-| Command | Raw | Elagix | Reduction | Note |
+| Command | Raw | Schliffe | Reduction | Note |
 |---|---|---|---|---|
 | `git status` (clean branch) | 174B | 28B | 84% | Identical to RTK |
 | `git log -5` | 9,313B | 204B | 97.8% | Same technique as RTK (keeps 1st commit, cuts the rest) |
@@ -28,9 +28,9 @@ Exit codes preserved in every case (`pytest` correctly exits with 2, not 0).
 
 ### Layer B (M3, validated live 2026-07-26)
 
-Generic engine in `src/camada_b/` — `FilterFile` (TOML) + `Step` (a tagged `action` enum) + `engine::apply()`. v1 actions: `strip_ansi`, `replace`, `match_output`, `keep_lines_matching`/`strip_lines_matching`, `dedup`, `truncate_lines`, `max_lines`, `on_empty` (the rest of the §5.3 catalog — `group_by`, `json_extract`/`json_schema`, `state_machine`, `aggregate`, `format_template`, `compact_path` — are left for whenever a v1 command actually needs them). `match_output`/`on_empty` only fire with `exit_code == 0`, the same business rule 2/3 as Layer A. 4 example filters embedded via `include_str!` (`filters-toml/*.toml`): `docker-images`, `git-branch`, `terraform-plan`, `npm-install`. Extensible without recompiling via `$ELAGIX_FILTERS_DIR` (default `~/.elagix/filters/*.toml`).
+Generic engine in `src/camada_b/` — `FilterFile` (TOML) + `Step` (a tagged `action` enum) + `engine::apply()`. v1 actions: `strip_ansi`, `replace`, `match_output`, `keep_lines_matching`/`strip_lines_matching`, `dedup`, `truncate_lines`, `max_lines`, `on_empty` (the rest of the §5.3 catalog — `group_by`, `json_extract`/`json_schema`, `state_machine`, `aggregate`, `format_template`, `compact_path` — are left for whenever a v1 command actually needs them). `match_output`/`on_empty` only fire with `exit_code == 0`, the same business rule 2/3 as Layer A. 4 example filters embedded via `include_str!` (`filters-toml/*.toml`): `docker-images`, `git-branch`, `terraform-plan`, `npm-install`. Extensible without recompiling via `$SCHLIFFE_FILTERS_DIR` (default `~/.schliffe/filters/*.toml`).
 
-| Command | Raw | Elagix | Reduction | Note |
+| Command | Raw | Schliffe | Reduction | Note |
 |---|---|---|---|---|
 | `git branch -a` (bastion-agent) | 353B | 316B | 10.5% | Only removed `remotes/origin/HEAD -> origin/main`; the list didn't exceed the 25-line cap |
 | `docker images` (21 real images) | 1,782B | 1,234B | 30.8% | `max_lines(15)` cut 7 images; no `<none>:<none>` present for `strip_lines_matching` to act on |
@@ -39,22 +39,22 @@ Generic engine in `src/camada_b/` — `FilterFile` (TOML) + `Step` (a tagged `ac
 6 new unit tests in `src/camada_b/engine.rs` (project total: 20 tests, all passing).
 
 **Four real bugs found and fixed while testing live** (documented as code comments, with the reason for each fix kept alongside):
-1. **Shim recursion** (`src/shim.rs`): the initial version tried to discover its own folder from `argv[0]`, assuming the shell always passes the full path — bash sometimes passes just the bare name ("git"), causing the shim to find itself again and filter its own output twice. Fixed: the shims folder is now known ahead of time (`~/.elagix/shims` or `$ELAGIX_SHIMS_DIR`), not discovered.
+1. **Shim recursion** (`src/shim.rs`): the initial version tried to discover its own folder from `argv[0]`, assuming the shell always passes the full path — bash sometimes passes just the bare name ("git"), causing the shim to find itself again and filter its own output twice. Fixed: the shims folder is now known ahead of time (`~/.schliffe/shims` or `$SCHLIFFE_SHIMS_DIR`), not discovered.
 2. **Filter turned off in the highest-value case** (`src/main.rs`): the rule "no success shortcut if the process failed" had, by mistake, become "only filter if `exit_code == 0`" — that turned off pytest's filter in exactly the case we most wanted to show off (test collection failure, which exits with a non-zero code). Fixed: each filter is responsible for never fabricating success; filtering itself always runs.
 3. **`git diff` with no commit header** (`src/filters/git_diff.rs`): `git diff` (working tree) starts directly with "diff --git", without the commit block `git show` has before it — the original detection only looked for `"\ndiff --git"` (with a newline before it), failing on this real case and falling back to fail-open with no filtering at all.
 4. **A cut in the middle of a diff made the output look like broken code** (`src/filters/git_diff.rs`): once the per-file changed-line cap was hit, the initial version kept showing `@@` headers and context from later hunks, only hiding the `+`/`-` lines — the result looked like broken syntax (an incomplete function call, an unclosed brace). Fixed to stop for good on the first excess, with a clear count of what was omitted.
 
 ### M4 — store, cache, progressive disclosure, dedup (validated live 2026-07-26)
 
-Three pending decisions resolved before implementing (specs §13): the disk store (`~/.elagix/store/`, file-per-hash layout, no in-RAM index), cleanup by 14-day expiration with a lazy sweep (~2% chance per write, plus manual `elagix store clear`/`elagix store gc`), and v1 cache scope restricted to `git show <explicit sha>` (the only case provably immutable without a heuristic — `HEAD`/branch are excluded).
+Three pending decisions resolved before implementing (specs §13): the disk store (`~/.schliffe/store/`, file-per-hash layout, no in-RAM index), cleanup by 14-day expiration with a lazy sweep (~2% chance per write, plus manual `schliffe store clear`/`schliffe store gc`), and v1 cache scope restricted to `git show <explicit sha>` (the only case provably immutable without a heuristic — `HEAD`/branch are excluded).
 
-New module `src/store/` — CAS (`put`/`get`, sha256 truncated to 64 bits) + keyed cache (`put_keyed`/`get_keyed`, a versioned key `git-show:v1:<sha>` so it never serves stale output if the filter changes) + sliding-window dedup (`check_and_record_dedup`, a limitation documented in specs §8.3: approximates "session" by time, not by a real id) + `force_gc`/`clear_all`. New meta-commands: `elagix show <hash>`, `elagix store clear`, `elagix store gc` — handled in `main.rs` before any shim resolution (there's no "real elagix" on the PATH).
+New module `src/store/` — CAS (`put`/`get`, sha256 truncated to 64 bits) + keyed cache (`put_keyed`/`get_keyed`, a versioned key `git-show:v1:<sha>` so it never serves stale output if the filter changes) + sliding-window dedup (`check_and_record_dedup`, a limitation documented in specs §8.3: approximates "session" by time, not by a real id) + `force_gc`/`clear_all`. New meta-commands: `schliffe show <hash>`, `schliffe store clear`, `schliffe store gc` — handled in `main.rs` before any shim resolution (there's no "real schliffe" on the PATH).
 
 | Mechanism | Live test | Result |
 |---|---|---|
 | Cache (`git show <sha>`, bastion-agent) | 1st call runs for real, 2nd call hits the cache | 0.023s → 0.001s (~23×), byte-identical output (confirmed with `diff`) |
-| Progressive disclosure (`git show`, the same 32,001B diff from M2's validation) | Filtered output (5,786B) gained the hint `(full output: elagix show c8a886791a32083d)` | `elagix show c8a886791a32083d` recovered the exact original 32,001B |
-| Dedup (repeated `git branch -a`, 60s window) | 1st call: normal 316B. Identical 2nd call: collapsed | 316B → 75B (`(same as previous output — elagix show ... to view it again)`) |
+| Progressive disclosure (`git show`, the same 32,001B diff from M2's validation) | Filtered output (5,786B) gained the hint `(full output: schliffe show c8a886791a32083d)` | `schliffe show c8a886791a32083d` recovered the exact original 32,001B |
+| Dedup (repeated `git branch -a`, 60s window) | 1st call: normal 316B. Identical 2nd call: collapsed | 316B → 75B (`(same as previous output — schliffe show ... to view it again)`) |
 
 Business rule 6 (never inflate) and rule 2/3 (no success shortcut on an unsuccessful process) verified in code: cache only writes with `exit_code == 0`; dedup only substitutes if the reference message is shorter than the original output. 5 new unit tests in `src/store/mod.rs` (project total: 25 tests, all passing).
 
@@ -62,15 +62,15 @@ Business rule 6 (never inflate) and rule 2/3 (no success shortcut on an unsucces
 
 ### M5/M6 — `bornes/mcp`: JSON-RPC proxy (validated live 2026-07-26)
 
-Unlike `bornes/comandos`'s shim (a short, one-shot process), this is a **long-lived** process: `elagix mcp -- <real server command> [args...]` spawns the real MCP server as a child and stays in the middle of the whole conversation, over stdio (newline-delimited JSON-RPC, no LSP-style framing). New module `src/mcp_proxy/` — `mod.rs` (spawn + two threads: one forwards client→server, intercepting `tools/call get_tool_schema` and pending `tools/list`/`tools/call`; the main one reads server→client and applies the right transformation per request `id`), `schema.rs` (lazy-loading, specs §6.1), and `compress.rs` (result compression, specs §6.2).
+Unlike `bornes/comandos`'s shim (a short, one-shot process), this is a **long-lived** process: `schliffe mcp -- <real server command> [args...]` spawns the real MCP server as a child and stays in the middle of the whole conversation, over stdio (newline-delimited JSON-RPC, no LSP-style framing). New module `src/mcp_proxy/` — `mod.rs` (spawn + two threads: one forwards client→server, intercepting `tools/call get_tool_schema` and pending `tools/list`/`tools/call`; the main one reads server→client and applies the right transformation per request `id`), `schema.rs` (lazy-loading, specs §6.1), and `compress.rs` (result compression, specs §6.2).
 
 **Schema lazy-loading**: `tools/list` returns minimal wrappers (name + first sentence of the description + a generic `inputSchema` of `{"type":"object"}`) and injects a synthetic `get_tool_schema` tool. The original full schema is cached in memory (per process, lasts the MCP session); when the model calls `get_tool_schema("X")`, the proxy answers **locally**, never forwarding that call to the real server (which doesn't even know about this tool).
 
-**Result compression**: only the 3 purely mechanical techniques from specs §5.5 (none of them tries to guess a field's semantic relevance): recursively removes `null`, truncates a long string keeping a prefix + a count, caps a large array at 10 items + an `_elagix_omitted_items` marker. Field pruning by relevance (pagination, HATEOAS) is left out of v1 — it would require knowing the specific API.
+**Result compression**: only the 3 purely mechanical techniques from specs §5.5 (none of them tries to guess a field's semantic relevance): recursively removes `null`, truncates a long string keeping a prefix + a count, caps a large array at 10 items + an `_schliffe_omitted_items` marker. Field pruning by relevance (pagination, HATEOAS) is left out of v1 — it would require knowing the specific API.
 
 Tested live with our own test MCP server (`fake_mcp_server.py`, a `search_docs` tool with a whole-paragraph description and a result with nulls/a 30-item array/long strings — a controlled fixture, not a third-party server):
 
-| Message | Raw | Elagix | Reduction |
+| Message | Raw | Schliffe | Reduction |
 |---|---|---|---|
 | `tools/list` (2 verbose tools) | 1,047B | 566B | 45.9% |
 | `get_tool_schema("search_docs")` | — | 962B | recovers the **complete and exact** schema — round trip validated |
@@ -90,7 +90,7 @@ Integrated into the two places that used to drop a commit's body entirely:
 - `filters/git_log.rs`: the first commit's body now shows up as `summary: <sentence>` (when it actually shrank) or `body: <sentence>` (when it was already a single sentence, shown in full instead of labeled as if it had been compressed — business rule 5).
 - `filters/git_diff.rs` (`git show`): a real finding during implementation — the filter used to drop even the commit's **hash and subject** along with the body, not just the body. Nobody had noticed (the filtered `git show` output never said which commit that diff belonged to). Fixed: now keeps `commit <hash> — <subject>` + a body summary before the hunks.
 
-**Decision revised during implementation** (specs §7.2/§7.3, §13): `/compress` **does not** turn into a call to `bornes/prosa`, contrary to what the earlier spec assumed. Re-examining the real `~/.claude/commands/compress.md` while integrating made it clear these are different tasks — `/compress` needs to cut redundancy WITHIN each sentence while preserving numbers/names/constraints (semantic judgment), while extractive TF-IDF can only drop WHOLE sentences (risking the loss of a constraint that landed in a low-scoring sentence — going against business rule 5). `bornes/prosa` gained an equivalent standalone utility, `elagix compress` (reads stdin, summarizes, prints — an automatic sentence cap of ~1/3 of the original, or an explicit `--sentences N`), useful for prose that can tolerate that kind of loss, but it isn't the engine behind the user's slash command.
+**Decision revised during implementation** (specs §7.2/§7.3, §13): `/compress` **does not** turn into a call to `bornes/prosa`, contrary to what the earlier spec assumed. Re-examining the real `~/.claude/commands/compress.md` while integrating made it clear these are different tasks — `/compress` needs to cut redundancy WITHIN each sentence while preserving numbers/names/constraints (semantic judgment), while extractive TF-IDF can only drop WHOLE sentences (risking the loss of a constraint that landed in a low-scoring sentence — going against business rule 5). `bornes/prosa` gained an equivalent standalone utility, `schliffe compress` (reads stdin, summarizes, prints — an automatic sentence cap of ~1/3 of the original, or an explicit `--sentences N`), useful for prose that can tolerate that kind of loss, but it isn't the engine behind the user's slash command.
 
 Tested live against the real `bastion-agent` repository (the same 2-sentence "cargo fmt" commit used in M2/M4's validation):
 
@@ -98,20 +98,20 @@ Tested live against the real `bastion-agent` repository (the same 2-sentence "ca
 |---|---|---|
 | `git log -5` | commit body dropped entirely, silently | `summary: Never ran cargo fmt this session...` (the highest-signal sentence per TF-IDF, not the first one by default) |
 | `git show HEAD` | commit hash/subject/body all dropped (a loss undocumented until now) | `commit cb93a3bd... — chore: cargo fmt (fix CI fmt-check failure)` + `summary: ...` before the hunks |
-| `elagix compress` (utility, 3 test sentences) | N/A | picked the 3rd sentence, not the 1st — TF-IDF scores by word rarity, not intuitive "importance"; expected algorithm behavior, documented as a known limitation, not a bug |
+| `schliffe compress` (utility, 3 test sentences) | N/A | picked the 3rd sentence, not the 1st — TF-IDF scores by word rarity, not intuitive "importance"; expected algorithm behavior, documented as a known limitation, not a bug |
 
 6 new unit tests in `src/prosa/mod.rs` + 2 updated in `git_log.rs`/`git_diff.rs` to reflect the new behavior (project total: 38 tests, all passing).
 
-### M8 — Packaging (validated live 2026-07-26 — **Elagix genuinely activated this session**)
+### M8 — Packaging (validated live 2026-07-26 — **Schliffe genuinely activated this session**)
 
 v1 scope: build from source (`cargo build --release`), no prebuilt-binary download — there's no release/CDN pipeline yet, and it wouldn't make sense to pretend there is. Two installers at the repo root:
 
-- **`install.sh`** (Linux/Mac/WSL): builds with `cargo`, creates symlinks at `~/.elagix/shims/{git,cargo,pytest,docker,npm,terraform}` (the list covers everything that already has a filter, Layer A + Layer B), makes sure `~/.elagix/shims` is ahead in `$PATH` via `~/.bashrc`/`~/.zshrc` (idempotent — doesn't duplicate the line on a re-run).
-- **`install.ps1`** (native Windows): deliberately doesn't symlink (would need developer mode/admin) — copies the `.exe` to each command name inside `~\.elagix\shims\`, since Elagix decides what to filter by the file's NAME (`argv[0]`), not whether it's a link or a copy. Looks for an already-built `elagix.exe` (3 candidate paths) before trying to build it on the spot; adjusts the user's PATH via `[Environment]::SetEnvironmentVariable(...,"User")`, also idempotent.
+- **`install.sh`** (Linux/Mac/WSL): builds with `cargo`, creates symlinks at `~/.schliffe/shims/{git,cargo,pytest,docker,npm,terraform}` (the list covers everything that already has a filter, Layer A + Layer B), makes sure `~/.schliffe/shims` is ahead in `$PATH` via `~/.bashrc`/`~/.zshrc` (idempotent — doesn't duplicate the line on a re-run).
+- **`install.ps1`** (native Windows): deliberately doesn't symlink (would need developer mode/admin) — copies the `.exe` to each command name inside `~\.schliffe\shims\`, since Schliffe decides what to filter by the file's NAME (`argv[0]`), not whether it's a link or a copy. Looks for an already-built `schliffe.exe` (3 candidate paths) before trying to build it on the spot; adjusts the user's PATH via `[Environment]::SetEnvironmentVariable(...,"User")`, also idempotent.
 
-**Windows — cross-compiled and tested actually RUNNING on native PowerShell** (not just `file`/static inspection): installed `mingw-w64` + the `x86_64-pc-windows-gnu` target in the build environment (WSL); `cargo build --release --target x86_64-pc-windows-gnu` compiled cleanly (no project dependency uses C/FFI, only pure Rust crates — `regex`/`serde`/`serde_json`/`toml`/`sha2` — which is why mingw was enough, no need for `cargo-zigbuild` or anything more elaborate). Copied the `.exe` to the Windows side and ran it natively via PowerShell: `elagix compress`, `elagix show`, `elagix store gc` ran and exited with the right code.
+**Windows — cross-compiled and tested actually RUNNING on native PowerShell** (not just `file`/static inspection): installed `mingw-w64` + the `x86_64-pc-windows-gnu` target in the build environment (WSL); `cargo build --release --target x86_64-pc-windows-gnu` compiled cleanly (no project dependency uses C/FFI, only pure Rust crates — `regex`/`serde`/`serde_json`/`toml`/`sha2` — which is why mingw was enough, no need for `cargo-zigbuild` or anything more elaborate). Copied the `.exe` to the Windows side and ran it natively via PowerShell: `schliffe compress`, `schliffe show`, `schliffe store gc` ran and exited with the right code.
 
-**Real bug found and fixed in this test**: `"text" | elagix.exe compress` arrived with a UTF-8 BOM (`U+FEFF`) at the front of the text — a known artifact of how native PowerShell encodes a string literal when sending it to a process's stdin, not an Elagix logic bug. Fixed with `strip_prefix('\u{feff}')` in `run_compress` (specs §7, `main.rs`) — stripping a BOM never loses substantive content, so it didn't violate business rule 5.
+**Real bug found and fixed in this test**: `"text" | schliffe.exe compress` arrived with a UTF-8 BOM (`U+FEFF`) at the front of the text — a known artifact of how native PowerShell encodes a string literal when sending it to a process's stdin, not an Schliffe logic bug. Fixed with `strip_prefix('\u{feff}')` in `run_compress` (specs §7, `main.rs`) — stripping a BOM never loses substantive content, so it didn't violate business rule 5.
 
 **`install.ps1` only tested in safe mode (isolated copy), not with full activation**: this development machine has no native `git`/`cargo`/`npm` on the Windows PATH — all development happens via WSL (confirmed with `Get-Command`, none of them resolved). Running the full `install.ps1` here would have had no practical effect (there's no real native tool to intercept). The script is correct and tested as far as this machine allows; full activation validation (a real PATH + intercepting an actual native `git.exe`/`npm.exe`) remains pending until run on a Windows machine with a native toolchain installed.
 
@@ -122,7 +122,7 @@ $ git status | cat
 clean — nothing to commit
 ```
 
-Confirmed: `which git`/`which cargo`/`which pytest` resolve to `~/.elagix/shims/`, and `git --version | cat` (a command with no filter defined) passes straight through unmodified — only subcommands with a real filter are touched.
+Confirmed: `which git`/`which cargo`/`which pytest` resolve to `~/.schliffe/shims/`, and `git --version | cat` (a command with no filter defined) passes straight through unmodified — only subcommands with a real filter are touched.
 
 **macOS — cross-compile deferred, with concrete evidence of why** (specs §9 already flagged this as Rust's known friction point): `rustup target add aarch64-apple-darwin` works, but linking fails —
 
@@ -171,7 +171,7 @@ src/
   main.rs              — thin entry point: only decides meta-command (core::meta) vs shim (bornes::comandos)
   core/
     store.rs            — content-addressed store (specs §8), cross-cutting: today only bornes/comandos uses it, but it's infra for all 3
-    meta.rs              — routes `elagix show/store/compress/mcp`
+    meta.rs              — routes `schliffe show/store/compress/mcp`
   bornes/
     comandos/            — the "RTK-like" one: $PATH shim + Layer A + Layer B
       shim.rs
@@ -188,6 +188,6 @@ Only 5 files needed a real content change (everything else was moved untouched):
 ## Next steps
 - **All 8 planned milestones (M0-M8) are done, activation has been validated against Claude Code's real invocation pattern, and the folder structure reflects the architecture documented from the start.**
 - See `KNOWN_ISSUES.md` (new, 2026-07-26) for the full, consolidated list of technical debt and known improvements — previously scattered across loose notes in this file and in `specs.md` §13.
-- Real, non-blocking pending items: (1) validate `install.ps1` on a Windows machine with a genuine native toolchain; (2) real build/test on macOS (needs a physical Mac or CI); (3) the project's own repository now has commits, published under `mkmuniz/elagix-tk`, after the M8 rename to Elagix; (4) watch real usage for a few days and see if any filter needs adjusting based on real production data, not just fixtures; (5) `install.sh`'s zsh path hasn't been tested live (only bash, this machine's real shell).
-- Test the shim under real use (add `~/.elagix/shims` to the persistent `$PATH`, not just per-call) and watch it for a few days before moving forward
+- Real, non-blocking pending items: (1) validate `install.ps1` on a Windows machine with a genuine native toolchain; (2) real build/test on macOS (needs a physical Mac or CI); (3) the project's own repository now has commits, published under `mkmuniz/schliffe-tk`, after the M8 rename to Schliffe; (4) watch real usage for a few days and see if any filter needs adjusting based on real production data, not just fixtures; (5) `install.sh`'s zsh path hasn't been tested live (only bash, this machine's real shell).
+- Test the shim under real use (add `~/.schliffe/shims` to the persistent `$PATH`, not just per-call) and watch it for a few days before moving forward
 - `bornes/mcp` also needs a live test against a real MCP server (not just the test fake) before M5/M6 can be considered ready for real use — only the mechanism has been validated, not compatibility with production servers

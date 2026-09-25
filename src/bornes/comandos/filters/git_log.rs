@@ -12,7 +12,7 @@
 /// `bornes/prosa` — summarized down to 1 sentence, labeled "summary" when it
 /// actually shrank (otherwise "body", shown in full). Other commits' bodies
 /// and anything that isn't part of the message (`--stat`, `-p` patches) are
-/// counted as omitted, which also triggers the `elagix show` recovery hint.
+/// counted as omitted, which also triggers the `schliffe show` recovery hint.
 pub fn filter(raw: &str) -> String {
     let lines: Vec<&str> = raw.lines().collect();
     let mut commit_starts: Vec<usize> = lines

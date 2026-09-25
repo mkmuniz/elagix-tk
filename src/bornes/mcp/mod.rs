@@ -36,7 +36,7 @@ struct ProxyState {
     schemas: Mutex<HashMap<String, Value>>,
 }
 
-/// `lazy_schemas = false` (`elagix mcp --keep-schemas`) leaves `tools/list`
+/// `lazy_schemas = false` (`schliffe mcp --keep-schemas`) leaves `tools/list`
 /// untouched and only compresses call results — for clients that already
 /// defer tool schemas themselves (current Claude Code loads MCP schemas on
 /// demand via its own tool search, which also relies on the full
@@ -51,7 +51,7 @@ pub fn run(server_cmd: &str, server_args: &[String], lazy_schemas: bool) -> Exit
     {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("elagix: failed to start MCP server '{server_cmd}': {e}");
+            eprintln!("schliffe: failed to start MCP server '{server_cmd}': {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -114,7 +114,7 @@ pub fn run(server_cmd: &str, server_args: &[String], lazy_schemas: bool) -> Exit
         write_value_to_client(&json!({
             "jsonrpc": "2.0",
             "id": id,
-            "error": { "code": -32000, "message": "MCP server exited before responding (elagix proxy)" },
+            "error": { "code": -32000, "message": "MCP server exited before responding (schliffe proxy)" },
         }));
     }
 

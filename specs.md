@@ -1,4 +1,4 @@
-# Elagix — Technical Specification v1
+# Schliffe — Technical Specification v1
 
 > Status: macro architecture and core techniques **decided** based on research (RTK, snip, Headroom, mcp-compressor, context-compressor, academic papers) and our own empirical validation (450 language-benchmark runs + an audit of 64 real RTK commands). What's still open is isolated in section 13, to become milestones. All of it has been implemented since — this document has been kept up to date as a living spec, not a pre-implementation plan.
 
@@ -6,7 +6,7 @@
 
 ## 1. Goal
 
-A tool (working name: **Elagix**) that reduces token waste in coding-agent sessions (Claude Code) on three fronts: shell command output, MCP tool definition/result, and natural-language prose (commit messages, prompts). Everything deterministic and auditable — without depending on Claude Code features we've already proven fragile or missing on certain platforms, and without depending on an external model (except as an optional extension, never on the default path).
+A tool (working name: **Schliffe**) that reduces token waste in coding-agent sessions (Claude Code) on three fronts: shell command output, MCP tool definition/result, and natural-language prose (commit messages, prompts). Everything deterministic and auditable — without depending on Claude Code features we've already proven fragile or missing on certain platforms, and without depending on an external model (except as an optional extension, never on the default path).
 
 ## 2. Why not depend on Claude Code hooks
 
@@ -20,14 +20,14 @@ We investigated two more hook candidates for solving similar problems, with the 
 | `UserPromptSubmit` | Replace the user's prompt before it reaches the model | **No replacement field exists on any platform** — only `additionalContext` (which adds, doesn't replace), and even that doesn't work in the VSCode extension (#49063, #15021) |
 | `PostToolUse.updatedToolOutput` | Replace a tool's result | Restricted by design to MCP tools (an extension request for native tools was closed without implementation, #32105), and even then it never fires on Windows+VSCode (#27014) |
 
-**Design conclusion**: three different mutation hooks tested, three broken or missing on this platform. No Elagix mechanism can depend on a Claude Code hook to mutate anything (input, prompt, or output) — it has to intercept from the outside, in layers Claude Code doesn't even know exist.
+**Design conclusion**: three different mutation hooks tested, three broken or missing on this platform. No Schliffe mechanism can depend on a Claude Code hook to mutate anything (input, prompt, or output) — it has to intercept from the outside, in layers Claude Code doesn't even know exist.
 
 ## 3. Macro architecture — the 3 `bornes`
 
 **Decided, 2026-07-26.** Scope covers three axes of token waste, each with its own interception mechanism — interception code can't be reused between them, only the philosophy and the business rules (section 4). Organized as self-contained modules in a `bornes/` folder (French for "borne" — the turnstile/terminal where you insert a token to pass through, e.g. a métro borne — each module is a mandatory checkpoint):
 
 ```
-elagix/
+schliffe/
   bornes/
     comandos/   # PATH shim — shell command output (git, docker, cargo, curl, wget, gh, aws, gcloud...)
     mcp/        # JSON-RPC protocol proxy — MCP tool schema (lazy-loading) + call result
@@ -39,7 +39,7 @@ Actually implemented inside `src/` starting from M8 (before that the code was fl
 ```
 src/
   main.rs        # thin entry point: meta-command (core::meta) vs shim (bornes::comandos)
-  core/          # store.rs (the store), meta.rs (routes `elagix show/store/compress/mcp`)
+  core/          # store.rs (the store), meta.rs (routes `schliffe show/store/compress/mcp`)
   bornes/
     comandos/    # shim.rs, filters/ (Layer A), camada_b/ (Layer B), filters-toml/ (data)
     mcp/
@@ -62,7 +62,7 @@ Requirements, not candidates — motivated by a real, documented risk (paper arX
 4. **Raw output always recoverable** — via progressive disclosure (section 8).
 5. **Never falsify or infer a result** — only reformats what actually came out, never summarizes based on assumption. Corollary (finding from section 10, the pytest item): when a pattern-recognition shortcut is used, preserve at least the last real error line, not just a count — keeps the savings without sacrificing information needed to act on it.
 6. **Filtered output can never be larger than the raw output** — if a transformation would result in more bytes than the input, discard the transformation and return the original unmodified. Motivated by an empirical finding (section 10): this rule alone would have prevented almost every case where RTK made output worse. No technique tested needs this guarantee disabled to work — it's pure upside, no known trade-off.
-7. **Elagix always inherits the same `$PATH`/environment as the process that invoked it** — never resolves binaries on its own (finding from section 10: it was exactly this kind of divergence that made RTK produce a worse error than the native shell in one of our tests).
+7. **Schliffe always inherits the same `$PATH`/environment as the process that invoked it** — never resolves binaries on its own (finding from section 10: it was exactly this kind of divergence that made RTK produce a worse error than the native shell in one of our tests).
 
 ---
 
@@ -76,7 +76,7 @@ An executable with the same name as the real command (e.g. `git`) sits in a fold
 sequenceDiagram
     participant Claude
     participant Shell
-    participant Shim as ~/.elagix/shims/git (Elagix binary)
+    participant Shim as ~/.schliffe/shims/git (Schliffe binary)
     participant RealGit as real git (original PATH)
     Claude->>Shell: runs "git status" (no prefix)
     Shell->>Shim: resolves "git" -> the shim (ahead in PATH)
@@ -97,7 +97,7 @@ sequenceDiagram
 
 **Known limitation**: only works when command resolution goes through the shell's `$PATH` — which is exactly how Claude Code runs Bash/PowerShell (confirmed by us), but a tool that calls the binary by an absolute path directly wouldn't go through the shim.
 
-**Critical M8 finding (2026-07-26) that nearly invalidated the entire activation**: "the shim is ahead in `$PATH`" isn't enough by itself — it depends on WHICH shell config file that `$PATH` change lives in, because that changes with the exact login/interactive combination the real process is invoked with, and different combinations read different files (that's a bash rule, not an Elagix one). Confirmed live that Claude Code (in this setup: VSCode extension on Windows, WSL as the shell backend) invokes commands as `wsl -e bash -lc "..."` — **login, non-interactive**. `~/.bashrc` alone (where installer v0 put the line) never runs in that case, because of the `if not interactive, exit` guard that Ubuntu's default `.bashrc` has at the top. Fix (detailed in MILESTONES.md, "Critical post-M8 fix" section): the PATH change needs to live in `~/.profile` (covers login) **and** at the top of `~/.bashrc`, before the guard (covers non-login+interactive) — no single file covers both real invocation combinations. **Corollary for any new platform**: before declaring activation "ready" on any OS/shell, you need to confirm experimentally the exact shell invocation pattern Claude Code uses on THAT platform — it can't be assumed to generalize from WSL/Linux.
+**Critical M8 finding (2026-07-26) that nearly invalidated the entire activation**: "the shim is ahead in `$PATH`" isn't enough by itself — it depends on WHICH shell config file that `$PATH` change lives in, because that changes with the exact login/interactive combination the real process is invoked with, and different combinations read different files (that's a bash rule, not an Schliffe one). Confirmed live that Claude Code (in this setup: VSCode extension on Windows, WSL as the shell backend) invokes commands as `wsl -e bash -lc "..."` — **login, non-interactive**. `~/.bashrc` alone (where installer v0 put the line) never runs in that case, because of the `if not interactive, exit` guard that Ubuntu's default `.bashrc` has at the top. Fix (detailed in MILESTONES.md, "Critical post-M8 fix" section): the PATH change needs to live in `~/.profile` (covers login) **and** at the top of `~/.bashrc`, before the guard (covers non-login+interactive) — no single file covers both real invocation combinations. **Corollary for any new platform**: before declaring activation "ready" on any OS/shell, you need to confirm experimentally the exact shell invocation pattern Claude Code uses on THAT platform — it can't be assumed to generalize from WSL/Linux.
 
 ### 5.2 Compression architecture: two layers (decided)
 
@@ -264,14 +264,14 @@ Besides schema lazy-loading, `bornes/mcp` compresses the call's **result** befor
 
 ### 7.1 Mechanism: extractive TF-IDF
 
-Inspired by `Huzaifa785/context-compressor`, which offers 4 strategies (extractive via TF-IDF, abstractive via a BART/T5 transformer, semantic via embeddings+k-means, hybrid). **Explicit decision: only the extractive strategy makes it in.** Scores sentences by statistical frequency/importance (TF-IDF) and keeps only the highest-scoring ones — no trained model, no embeddings, pure word-frequency computation, implementable in pure Rust. The abstractive/semantic/hybrid strategies were rejected because they'd reintroduce the external-model dependency the rest of Elagix avoids (the same trade-off behind the rejected "small-model compression" idea for `bornes/comandos`).
+Inspired by `Huzaifa785/context-compressor`, which offers 4 strategies (extractive via TF-IDF, abstractive via a BART/T5 transformer, semantic via embeddings+k-means, hybrid). **Explicit decision: only the extractive strategy makes it in.** Scores sentences by statistical frequency/importance (TF-IDF) and keeps only the highest-scoring ones — no trained model, no embeddings, pure word-frequency computation, implementable in pure Rust. The abstractive/semantic/hybrid strategies were rejected because they'd reintroduce the external-model dependency the rest of Schliffe avoids (the same trade-off behind the rejected "small-model compression" idea for `bornes/comandos`).
 
 Has no interception mechanism of its own — it's a function called by the other two `bornes` when they encounter a piece of prose.
 
 ### 7.2 Concrete uses
 
 1. **Commit message body** — called by `bornes/comandos` while processing `git log`/`git show`. Today RTK drops the whole body (section 5.4b); `bornes/prosa` summarizes it into 1 sentence instead of erasing it, preserving more information for roughly the same token cost. Implemented (M7, 2026-07-26): `git log` shows `summary: <sentence>` instead of dropping the first commit's body; `git show` got back at least the commit's hash+subject (which used to disappear entirely, along with the body — a loss nobody had noticed until this revision) plus the same body summary.
-2. **`/compress`** — **decision revised during M7's implementation (2026-07-26): it does NOT turn into a call to `bornes/prosa`.** The original idea (specs prior to this revision) assumed it was just a matter of swapping "manual compression done by me" for a deterministic call. Re-examining the real `~/.claude/commands/compress.md` while working on the integration made it clear this is a different task than what extractive TF-IDF solves: a prompt draft needs to **cut redundancy within each sentence** while preserving 100% of the substantive content (numbers, names, constraints) — extractive TF-IDF can only **drop whole sentences**, which risks exactly what business rule 5 forbids (losing a number/name/constraint that was in a low-scoring but essential sentence). Good for a commit body (losing a secondary context sentence is acceptable); bad for a prompt dense with constraints. `/compress` remains semantic judgment done by me, deliberately — it's not a gap to close later, it's the right tool for the problem. `bornes/prosa` gained an equivalent standalone utility (`elagix compress`, reads stdin, summarizes, prints) for anyone who wants to apply the extractive technique to prose that can tolerate that kind of loss (a commit body outside the `git log` flow, a long documentation excerpt, etc.) — it's just not the mechanism behind the user's slash command.
+2. **`/compress`** — **decision revised during M7's implementation (2026-07-26): it does NOT turn into a call to `bornes/prosa`.** The original idea (specs prior to this revision) assumed it was just a matter of swapping "manual compression done by me" for a deterministic call. Re-examining the real `~/.claude/commands/compress.md` while working on the integration made it clear this is a different task than what extractive TF-IDF solves: a prompt draft needs to **cut redundancy within each sentence** while preserving 100% of the substantive content (numbers, names, constraints) — extractive TF-IDF can only **drop whole sentences**, which risks exactly what business rule 5 forbids (losing a number/name/constraint that was in a low-scoring but essential sentence). Good for a commit body (losing a secondary context sentence is acceptable); bad for a prompt dense with constraints. `/compress` remains semantic judgment done by me, deliberately — it's not a gap to close later, it's the right tool for the problem. `bornes/prosa` gained an equivalent standalone utility (`schliffe compress`, reads stdin, summarizes, prints) for anyone who wants to apply the extractive technique to prose that can tolerate that kind of loss (a commit body outside the `git log` flow, a long documentation excerpt, etc.) — it's just not the mechanism behind the user's slash command.
 
 ### 7.3 What is NOT automatic (a known limit, not a bug)
 
@@ -289,7 +289,7 @@ The three techniques in this section share the same piece of infrastructure: a *
 
 Refined from `mcp-compressor`'s lazy-loading mechanism (section 6.1), generalized to a command/tool result, not just a schema:
 
-Instead of always returning the entire compressed result, it returns, by default, just a **minimal headline** (e.g. `"3 failures — elagix show a3f9c for detail"`) and only pays the token cost of the full content if the agent explicitly asks for it. A real, validated precedent — it's exactly the pattern `mcp-compressor` already uses in production for tool schema (`get_tool_schema` on demand instead of sending everything upfront).
+Instead of always returning the entire compressed result, it returns, by default, just a **minimal headline** (e.g. `"3 failures — schliffe show a3f9c for detail"`) and only pays the token cost of the full content if the agent explicitly asks for it. A real, validated precedent — it's exactly the pattern `mcp-compressor` already uses in production for tool schema (`get_tool_schema` on demand instead of sending everything upfront).
 
 Replaces the two simpler ideas we considered earlier (a tee on RTK failure; Headroom's `CCR` universal on-demand retrieval) — covers the same cases and still saves tokens on the happy path. Trade-off: one extra round trip when the agent genuinely needs the full detail.
 
@@ -313,19 +313,19 @@ Complementary to the cache: even if the command needs to run again (or has only 
 
 This covers a common, expensive pattern in long agent sessions: running `git status` or `ls` repeatedly to "check the current state" — if nothing changed since last time, the answer should cost almost nothing. **This is the only one of the two techniques (8.2/8.3) that actually reduces tokens** — 8.2 alone wouldn't reduce anything.
 
-**Known v1 limitation (2026-07-26)**: "same session" has no reliable identifier available to the shim — every call is a new process, and Claude Code doesn't expose a stable session id in the child process's environment. Approximated with a **sliding time window** (`ELAGIX_DEDUP_WINDOW_SECS`, default 1,800s/30min) instead of a real session boundary: if the same content (identical hash) already appeared within the window, it counts as a duplicate. An honest trade-off — it may deduplicate across two sessions close in time, or fail to deduplicate within one very long session with big gaps. Only applies to outputs above a minimum size (to avoid spending a reference line to save a handful of bytes).
+**Known v1 limitation (2026-07-26)**: "same session" has no reliable identifier available to the shim — every call is a new process, and Claude Code doesn't expose a stable session id in the child process's environment. Approximated with a **sliding time window** (`SCHLIFFE_DEDUP_WINDOW_SECS`, default 1,800s/30min) instead of a real session boundary: if the same content (identical hash) already appeared within the window, it counts as a duplicate. An honest trade-off — it may deduplicate across two sessions close in time, or fail to deduplicate within one very long session with big gaps. Only applies to outputs above a minimum size (to avoid spending a reference line to save a handful of bytes).
 
 ### 8.4 Compatibility with the provider's prompt cache (Anthropic)
 
-Unlike the three techniques above (which are Elagix's own), this one is about not **interfering** with a mechanism that already exists outside our control: Anthropic caches repeated prompt prefixes across API calls (`cache_control`), which already saves reprocessing tokens for everything that stays stable between turns (system prompt, tool definitions, history). That cache only works if the prefix is **byte-for-byte identical** across calls.
+Unlike the three techniques above (which are Schliffe's own), this one is about not **interfering** with a mechanism that already exists outside our control: Anthropic caches repeated prompt prefixes across API calls (`cache_control`), which already saves reprocessing tokens for everything that stays stable between turns (system prompt, tool definitions, history). That cache only works if the prefix is **byte-for-byte identical** across calls.
 
-**Derived design requirement**: Elagix's output has to be **deterministic** — the same input always produces the same output, byte for byte (no timestamp in the frame, no non-deterministic ordering, no cosmetic variation whatsoever between identical runs). This is already a natural consequence of business rules 5 and 6 (never infer, never inflate), but it's worth stating explicitly: **never introduce non-determinism in any layer** — it would break both Elagix's own cache (8.2) and the provider's prompt cache.
+**Derived design requirement**: Schliffe's output has to be **deterministic** — the same input always produces the same output, byte for byte (no timestamp in the frame, no non-deterministic ordering, no cosmetic variation whatsoever between identical runs). This is already a natural consequence of business rules 5 and 6 (never infer, never inflate), but it's worth stating explicitly: **never introduce non-determinism in any layer** — it would break both Schliffe's own cache (8.2) and the provider's prompt cache.
 
 ### 8.5 Store resource cost (RAM, disk, latency)
 
 Analysis done on 2026-07-26, answering the question "what's the impact of saving this to disk":
 
-- **RAM: negligible by design**, as long as the store uses a file-per-hash layout (the same pattern as `.git/objects/`, or npm/cargo's cache) instead of an index fully loaded into memory. Every shim call only reads the one file for the hash it needs — no resident database, no in-RAM index. The OS's page cache may keep hot entries in memory on its own, but that's a performance gain released automatically under memory pressure, not a cost Elagix controls or needs to manage.
+- **RAM: negligible by design**, as long as the store uses a file-per-hash layout (the same pattern as `.git/objects/`, or npm/cargo's cache) instead of an index fully loaded into memory. Every shim call only reads the one file for the hash it needs — no resident database, no in-RAM index. The OS's page cache may keep hot entries in memory on its own, but that's a performance gain released automatically under memory pressure, not a cost Schliffe controls or needs to manage.
 - **Disk: real, grows unbounded without cleanup.** Rough estimate for normal use (~100 cacheable commands/day, a few KB each — our own examples ranged from 27B to 9,142B of compressed output): ~100-500KB/day, ~3-15MB/month with no eviction at all. Modest, but unbounded — needs a cleanup policy from v1 (see decision below), not something to defer until it's already growing in production.
 - **Latency: small in absolute terms, but proportionally relevant to the shim itself** — reading/writing a small file adds fractions of a ms to a few ms of I/O, which is noticeable compared to the Rust binary's own startup (~1.5ms, section 9), but negligible compared to the real command it wraps (`git status`/`cargo build` already take orders of magnitude longer on their own).
 
@@ -369,7 +369,7 @@ The 42 commands in the two bottom ranges group into 4 patterns:
 
 **A finding that changes the reading**: in absolute tokens (not %), `biome` cost ~1,179 tokens MORE in a real run (a 6,250-token input) while `summary` — with the worse % (-790%) — only cost 22 tokens more (a 3-token input). Percentage alone hides where the real damage is.
 
-### 10.3 Methodology adopted for Elagix, by failure type
+### 10.3 Methodology adopted for Schliffe, by failure type
 
 | Failure type | Methodology adopted |
 |---|---|
@@ -405,9 +405,9 @@ Everything left to decide has well-defined scope from the sections above; what's
 
 - [ ] **v1 scope for `bornes/comandos`**: which commands get a dedicated parser (Layer A) in v1 vs. staying on the generic Layer B? Starting suggestion: the same highest-traffic ones we've already validated (`git status/log/diff`, `pytest`, `cargo test`).
 - [x] **v1 scope for `bornes/mcp`** — **decided and implemented (2026-07-26): basic schema lazy-loading + result compression, stdio only.** OAuth and remote HTTP streaming are left for later — neither is necessary for the majority case (a local MCP server over stdio, which is how most servers configured in Claude Code run today).
-- [x] **v1 scope for `bornes/prosa`** — **decided and implemented (2026-07-26): commit body only (`git log`/`git show`) + the standalone `elagix compress` utility.** `/compress` is left out (see revised §7.2/§7.3: it's a different task, not a deferred use case). Summarizing a long docstring/comment during a file read is left for whenever a `read`/`smart` parser exists in Layer A — there's nowhere to plug it in yet.
+- [x] **v1 scope for `bornes/prosa`** — **decided and implemented (2026-07-26): commit body only (`git log`/`git show`) + the standalone `schliffe compress` utility.** `/compress` is left out (see revised §7.2/§7.3: it's a different task, not a deferred use case). Summarizing a long docstring/comment during a file read is left for whenever a `read`/`smart` parser exists in Layer A — there's nowhere to plug it in yet.
 - [x] **Layer B data format (specs §5.2/§5.3)** — **decided: TOML** (2026-07-26). Three reasons: (1) first-class, mature support in the Rust ecosystem (the `toml` crate, the same format Cargo itself uses — `serde_yaml`, Rust's main YAML crate, was archived by its original maintainer at one point, evidence of relative instability on the YAML side); (2) TOML is more explicit and resistant to silent corruption (YAML has indentation sensitivity that sometimes produces no parse error, just wrong structure with no warning, plus implicit type coercion — the "Norway problem", `NO` becoming a boolean) — that goes directly against business rules 3 and 5 (fail-open, never falsify); (3) the same format RTK already uses for its long tail, making cross-referencing easier. `snip` chose YAML for multi-line string ergonomics in test fixtures — a trade-off that doesn't pay off given that reliability outweighs ergonomics in this project's philosophy.
-- [x] **v1 scope for cache (section 8.2)** — **decided (2026-07-26): only immutable git history, and only `git show <explicit-sha>`** (not `HEAD`, not `git log`, not the working tree). It's the only case where "immutable" is provable without a heuristic (an explicit SHA never changes content; `HEAD`/a branch can point to a different commit tomorrow). File reading is left out of v1 (Layer A still has no `read`/`smart` parser — nothing to cache yet). The cache key includes a filter format version (`git-show:v1:<sha>`) so it never serves output from an old Elagix version after the filter changes.
-- [x] **Where the content-addressed store lives (section 8)** — **decided: disk, `~/.elagix/store/`** (same pattern as `~/.elagix/shims/`, configurable via `$ELAGIX_STORE_DIR`). Per-process memory wouldn't serve any purpose — every shim call is a new, short-lived process (specs §5.1), so cache/dedup would have zero lifespan without persisting to disk. File-per-hash layout (specs §8.5), no resident index/database in RAM.
-- [x] **Disk store cleanup policy (section 8.5)** — **decided: age-based expiration, 14 days, a lazy sweep** (no daemon: every store write has a ~2% chance of running a sweep that removes files with an mtime older than 14 days — cheap enough given the estimated KB/day volume). Plus a manual escape hatch, `elagix store clear` (wipes everything immediately) and `elagix store gc` (forces the sweep right away). 14 days comfortably covers a continuous work session's usage pattern without letting the store grow indefinitely.
-- [x] **Final name** — **decided: "Elagix"** (2026-07-26). Formerly a working name ("Jeton"), formally confirmed as final after exploring several naming directions (French vocabulary, wordplay, Clair Obscur-themed, Japanese/German/Russian options) — chosen from the "élagage"/"élagueur" family (French for pruning/trimming), matching the project's own metaphor of cutting excess while keeping what matters.
+- [x] **v1 scope for cache (section 8.2)** — **decided (2026-07-26): only immutable git history, and only `git show <explicit-sha>`** (not `HEAD`, not `git log`, not the working tree). It's the only case where "immutable" is provable without a heuristic (an explicit SHA never changes content; `HEAD`/a branch can point to a different commit tomorrow). File reading is left out of v1 (Layer A still has no `read`/`smart` parser — nothing to cache yet). The cache key includes a filter format version (`git-show:v1:<sha>`) so it never serves output from an old Schliffe version after the filter changes.
+- [x] **Where the content-addressed store lives (section 8)** — **decided: disk, `~/.schliffe/store/`** (same pattern as `~/.schliffe/shims/`, configurable via `$SCHLIFFE_STORE_DIR`). Per-process memory wouldn't serve any purpose — every shim call is a new, short-lived process (specs §5.1), so cache/dedup would have zero lifespan without persisting to disk. File-per-hash layout (specs §8.5), no resident index/database in RAM.
+- [x] **Disk store cleanup policy (section 8.5)** — **decided: age-based expiration, 14 days, a lazy sweep** (no daemon: every store write has a ~2% chance of running a sweep that removes files with an mtime older than 14 days — cheap enough given the estimated KB/day volume). Plus a manual escape hatch, `schliffe store clear` (wipes everything immediately) and `schliffe store gc` (forces the sweep right away). 14 days comfortably covers a continuous work session's usage pattern without letting the store grow indefinitely.
+- [x] **Final name** — **decided: "Schliffe"** (2026-07-26). Formerly a working name ("Jeton"), formally confirmed as final after exploring several naming directions (French vocabulary, wordplay, Clair Obscur-themed, Japanese/German/Russian options) — chosen from the "élagage"/"élagueur" family (French for pruning/trimming), matching the project's own metaphor of cutting excess while keeping what matters.

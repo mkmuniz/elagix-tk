@@ -12,10 +12,10 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-const BIN: &str = env!("CARGO_BIN_EXE_elagix");
+const BIN: &str = env!("CARGO_BIN_EXE_schliffe");
 
 /// An isolated sandbox: its own shims dir, fake-tools dir and store, so
-/// tests never touch `~/.elagix` and can run in parallel.
+/// tests never touch `~/.schliffe` and can run in parallel.
 struct Sandbox {
     root: PathBuf,
 }
@@ -24,7 +24,7 @@ impl Sandbox {
     fn new() -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
-            "elagix-e2e-{}-{}",
+            "schliffe-e2e-{}-{}",
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
@@ -32,7 +32,7 @@ impl Sandbox {
         for sub in ["shims", "real", "store"] {
             fs::create_dir_all(root.join(sub)).unwrap();
         }
-        symlink(BIN, root.join("shims").join("elagix")).unwrap();
+        symlink(BIN, root.join("shims").join("schliffe")).unwrap();
         Sandbox { root }
     }
 
@@ -73,9 +73,9 @@ impl Sandbox {
             .env_clear()
             .env("PATH", path)
             .env("HOME", &self.root)
-            .env("ELAGIX_SHIMS_DIR", self.shims())
-            .env("ELAGIX_STORE_DIR", self.root.join("store"))
-            .env("ELAGIX_FILTERS_DIR", self.root.join("no-extra-filters"));
+            .env("SCHLIFFE_SHIMS_DIR", self.shims())
+            .env("SCHLIFFE_STORE_DIR", self.root.join("store"))
+            .env("SCHLIFFE_FILTERS_DIR", self.root.join("no-extra-filters"));
         if agent {
             cmd.env("CLAUDECODE", "1");
         }
@@ -128,9 +128,9 @@ fn agent_gets_filtered_output() {
 }
 
 #[test]
-fn elagix_disable_wins_inside_an_agent() {
+fn schliffe_disable_wins_inside_an_agent() {
     let sb = git_sandbox();
-    let out = sb.run("git", &["log"], true, &[("ELAGIX_DISABLE", "1")]);
+    let out = sb.run("git", &["log"], true, &[("SCHLIFFE_DISABLE", "1")]);
     assert_eq!(stdout(&out), GIT_LOG);
 }
 
@@ -155,34 +155,34 @@ fn missing_real_binary_behaves_like_command_not_found() {
 
 #[test]
 fn shim_never_resolves_itself() {
-    // ELAGIX_SHIMS_DIR points elsewhere, so the folder check can't help —
+    // SCHLIFFE_SHIMS_DIR points elsewhere, so the folder check can't help —
     // only the "is this my own executable" guard stops the recursion.
     // A tool name that exists nowhere else in PATH (macOS ships a real
     // /usr/bin/git, which would be found legitimately).
     let sb = Sandbox::new();
-    sb.shim("elagix-e2e-tool");
+    sb.shim("schliffe-e2e-tool");
     let other = sb.root.join("elsewhere");
     fs::create_dir_all(&other).unwrap();
     let out = sb.run(
-        "elagix-e2e-tool",
+        "schliffe-e2e-tool",
         &["x"],
         true,
-        &[("ELAGIX_SHIMS_DIR", other.to_str().unwrap())],
+        &[("SCHLIFFE_SHIMS_DIR", other.to_str().unwrap())],
     );
     assert_eq!(out.status.code(), Some(127));
 }
 
 #[test]
-fn omitted_content_is_recoverable_with_elagix_show() {
+fn omitted_content_is_recoverable_with_schliffe_show() {
     let sb = git_sandbox();
     let out = sb.run("git", &["log"], true, &[]);
     let text = stdout(&out);
     let hash = text
-        .split("elagix show ")
+        .split("schliffe show ")
         .nth(1)
         .and_then(|rest| rest.split(')').next())
         .expect("recovery hint present");
-    let shown = sb.run("elagix", &["show", hash], false, &[]);
+    let shown = sb.run("schliffe", &["show", hash], false, &[]);
     assert_eq!(stdout(&shown), GIT_LOG);
 }
 
@@ -250,9 +250,9 @@ fn filter_never_inflates_output() {
 fn compress_meta_command_summarizes_stdin() {
     use std::io::Write;
     let sb = Sandbox::new();
-    let mut child = Command::new(sb.shims().join("elagix"))
+    let mut child = Command::new(sb.shims().join("schliffe"))
         .args(["compress", "--sentences", "1"])
-        .env("ELAGIX_STORE_DIR", sb.root.join("store"))
+        .env("SCHLIFFE_STORE_DIR", sb.root.join("store"))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -296,8 +296,8 @@ fn unfiltered_long_running_command_streams_live() {
             ),
         )
         .env("HOME", &sb.root)
-        .env("ELAGIX_SHIMS_DIR", sb.shims())
-        .env("ELAGIX_STORE_DIR", sb.root.join("store"))
+        .env("SCHLIFFE_SHIMS_DIR", sb.shims())
+        .env("SCHLIFFE_STORE_DIR", sb.root.join("store"))
         .env("CLAUDECODE", "1")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -324,25 +324,25 @@ fn stats_record_agent_commands_only_without_arguments() {
     sb.run("git", &["push", "origin"], true, &[]); // no filter: passthrough
     sb.run("git", &["log"], false, &[]); // not an agent: never recorded
 
-    let log = fs::read_to_string(sb.root.join(".elagix").join("stats.log")).unwrap();
+    let log = fs::read_to_string(sb.root.join(".schliffe").join("stats.log")).unwrap();
     let lines: Vec<&str> = log.lines().collect();
     assert_eq!(lines.len(), 2, "{log}");
     assert!(lines[0].contains("\tgit log\t"));
     assert!(lines[1].ends_with("\tgit push\t-\t-"));
     assert!(!log.contains("secret-token") && !log.contains("origin"));
 
-    let report = stdout(&sb.run("elagix", &["stats"], false, &[]));
+    let report = stdout(&sb.run("schliffe", &["stats"], false, &[]));
     assert!(report.contains("top savings"), "{report}");
     assert!(report.contains("git push 1×"), "{report}");
 }
 
 fn run_with_stdin(sb: &Sandbox, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Output {
     use std::io::Write;
-    let mut cmd = Command::new(sb.shims().join("elagix"));
+    let mut cmd = Command::new(sb.shims().join("schliffe"));
     cmd.args(args)
         .env_clear()
         .env("HOME", &sb.root)
-        .env("ELAGIX_STORE_DIR", sb.root.join("store"))
+        .env("SCHLIFFE_STORE_DIR", sb.root.join("store"))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -381,7 +381,7 @@ fn hook_replaces_remote_mcp_output_and_ignores_the_rest() {
     assert!(!text.contains("parent"));
     assert!(text.len() < input.len());
 
-    // A tool Elagix doesn't handle: no output at all = original kept.
+    // A tool Schliffe doesn't handle: no output at all = original kept.
     let bash = r#"{"tool_name":"Bash","tool_response":{"stdout":"hi"}}"#;
     let out = run_with_stdin(&sb, &["hook", "post-tool-use"], bash, &[]);
     assert!(out.status.success());
@@ -402,7 +402,7 @@ fn hook_install_and_uninstall_keep_other_settings() {
         r#"{"model":"opus","hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"my-linter"}]}]}}"#,
     )
     .unwrap();
-    let env = [("ELAGIX_CLAUDE_SETTINGS", settings.to_str().unwrap())];
+    let env = [("SCHLIFFE_CLAUDE_SETTINGS", settings.to_str().unwrap())];
 
     for _ in 0..2 {
         // twice: must stay a single entry

@@ -13,7 +13,7 @@ use std::process::ExitCode;
 /// Code's own Read tool (never touch a shell or an MCP pipe).
 ///
 /// It's a Claude Code `PostToolUse` hook: Claude Code runs
-/// `elagix hook post-tool-use` after each matching tool call, passing the
+/// `schliffe hook post-tool-use` after each matching tool call, passing the
 /// call as JSON on stdin; answering with `hookSpecificOutput.
 /// updatedToolOutput` replaces what the model sees. Platform caveat, and the
 /// reason the project avoided hooks at first: hook output mutation was
@@ -32,7 +32,7 @@ pub fn run_post_tool_use() -> ExitCode {
     }
     // Diagnostics: keep a copy of what Claude Code sent, to learn the exact
     // result shapes of tools that aren't documented (e.g. Read on images).
-    if let Ok(dir) = std::env::var("ELAGIX_HOOK_DUMP") {
+    if let Ok(dir) = std::env::var("SCHLIFFE_HOOK_DUMP") {
         let _ = std::fs::create_dir_all(&dir);
         let name = format!("{}-{}.json", now_nanos(), std::process::id());
         let _ = std::fs::write(PathBuf::from(dir).join(name), &raw);
@@ -130,59 +130,61 @@ fn transform(input: &Value, max_edge: u32, store: impl Fn(&str) -> String) -> Op
     changed.then_some(out)
 }
 
-// ---- `elagix hook install|uninstall` -------------------------------------
+// ---- `schliffe hook install|uninstall` -------------------------------------
 
 const HOOK_ARGS: &str = "hook post-tool-use";
 const MATCHER: &str = "Read|mcp__.*";
 
 fn settings_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("ELAGIX_CLAUDE_SETTINGS") {
+    if let Ok(p) = std::env::var("SCHLIFFE_CLAUDE_SETTINGS") {
         return Some(PathBuf::from(p));
     }
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".claude").join("settings.json"))
 }
 
-fn elagix_bin() -> String {
+fn schliffe_bin() -> String {
     // Prefer the installed copy (stable across rebuilds / `cargo clean`).
     if let Some(home) = std::env::var_os("HOME") {
         let installed = PathBuf::from(home)
-            .join(".elagix")
+            .join(".schliffe")
             .join("bin")
-            .join("elagix");
+            .join("schliffe");
         if installed.exists() {
             return installed.to_string_lossy().into_owned();
         }
     }
     std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "elagix".into())
+        .unwrap_or_else(|_| "schliffe".into())
 }
 
 fn is_ours(hook: &Value) -> bool {
     hook.get("command")
         .and_then(Value::as_str)
-        .is_some_and(|c| c.contains("elagix") && c.contains(HOOK_ARGS))
+        // "elagix": the project's former name — so reinstalling replaces
+        // a hook registered before the rename instead of adding a second one.
+        .is_some_and(|c| (c.contains("schliffe") || c.contains("elagix")) && c.contains(HOOK_ARGS))
 }
 
-/// Adds (or refreshes) Elagix's PostToolUse entry in Claude Code's user
+/// Adds (or refreshes) Schliffe's PostToolUse entry in Claude Code's user
 /// settings, keeping every other setting and hook as it was. Idempotent.
 pub fn install() -> ExitCode {
     if cfg!(windows) {
         eprintln!(
-            "elagix: the Claude Code hook isn't supported on native Windows (hook output\n\
+            "schliffe: the Claude Code hook isn't supported on native Windows (hook output\n\
              replacement doesn't work there). Use it from WSL instead."
         );
         return ExitCode::FAILURE;
     }
     let Some(path) = settings_path() else {
-        eprintln!("elagix: couldn't locate Claude Code's settings (no HOME)");
+        eprintln!("schliffe: couldn't locate Claude Code's settings (no HOME)");
         return ExitCode::FAILURE;
     };
     let mut settings = match read_settings(&path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("elagix: {e}");
+            eprintln!("schliffe: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -191,23 +193,23 @@ pub fn install() -> ExitCode {
         "matcher": MATCHER,
         "hooks": [{
             "type": "command",
-            "command": format!("{} {HOOK_ARGS}", elagix_bin()),
+            "command": format!("{} {HOOK_ARGS}", schliffe_bin()),
             "timeout": 30,
         }],
     });
     let Some(root) = settings.as_object_mut() else {
-        eprintln!("elagix: {} isn't a JSON object", path.display());
+        eprintln!("schliffe: {} isn't a JSON object", path.display());
         return ExitCode::FAILURE;
     };
     let hooks = root.entry("hooks").or_insert_with(|| json!({}));
     let Some(hooks) = hooks.as_object_mut() else {
-        eprintln!("elagix: \"hooks\" in {} isn't an object", path.display());
+        eprintln!("schliffe: \"hooks\" in {} isn't an object", path.display());
         return ExitCode::FAILURE;
     };
     let post = hooks.entry("PostToolUse").or_insert_with(|| json!([]));
     let Some(post) = post.as_array_mut() else {
         eprintln!(
-            "elagix: \"hooks.PostToolUse\" in {} isn't a list",
+            "schliffe: \"hooks.PostToolUse\" in {} isn't a list",
             path.display()
         );
         return ExitCode::FAILURE;
@@ -215,25 +217,25 @@ pub fn install() -> ExitCode {
     post.push(entry);
     match write_settings(&path, &settings) {
         Ok(backup) => {
-            println!("elagix: hook installed in {}", path.display());
+            println!("schliffe: hook installed in {}", path.display());
             if let Some(b) = backup {
-                println!("elagix: previous settings backed up to {}", b.display());
+                println!("schliffe: previous settings backed up to {}", b.display());
             }
             println!(
-                "elagix: open a NEW Claude Code session (or reload the VS Code window) to\n\
+                "schliffe: open a NEW Claude Code session (or reload the VS Code window) to\n\
                  activate it. Remote MCP results (e.g. Figma) and large images read by\n\
-                 Claude will be reduced; check with `elagix stats`."
+                 Claude will be reduced; check with `schliffe stats`."
             );
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("elagix: failed to write {}: {e}", path.display());
+            eprintln!("schliffe: failed to write {}: {e}", path.display());
             ExitCode::FAILURE
         }
     }
 }
 
-/// Removes Elagix's entry, leaving everything else in place.
+/// Removes Schliffe's entry, leaving everything else in place.
 pub fn uninstall() -> ExitCode {
     let Some(path) = settings_path() else {
         return ExitCode::FAILURE;
@@ -241,24 +243,24 @@ pub fn uninstall() -> ExitCode {
     let mut settings = match read_settings(&path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("elagix: {e}");
+            eprintln!("schliffe: {e}");
             return ExitCode::FAILURE;
         }
     };
     if !remove_ours(&mut settings) {
         println!(
-            "elagix: hook not installed in {} (nothing to do)",
+            "schliffe: hook not installed in {} (nothing to do)",
             path.display()
         );
         return ExitCode::SUCCESS;
     }
     match write_settings(&path, &settings) {
         Ok(_) => {
-            println!("elagix: hook removed from {}", path.display());
+            println!("schliffe: hook removed from {}", path.display());
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("elagix: failed to write {}: {e}", path.display());
+            eprintln!("schliffe: failed to write {}: {e}", path.display());
             ExitCode::FAILURE
         }
     }
@@ -284,20 +286,20 @@ fn write_settings(path: &PathBuf, settings: &Value) -> std::io::Result<Option<Pa
         std::fs::create_dir_all(dir)?;
     }
     let backup = if path.exists() {
-        let b = path.with_extension("json.elagix-backup");
+        let b = path.with_extension("json.schliffe-backup");
         std::fs::copy(path, &b)?;
         Some(b)
     } else {
         None
     };
-    let tmp = path.with_extension("json.elagix-tmp");
+    let tmp = path.with_extension("json.schliffe-tmp");
     let text = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
     std::fs::write(&tmp, format!("{text}\n"))?;
     std::fs::rename(&tmp, path)?;
     Ok(backup)
 }
 
-/// Drops Elagix's hook from every PostToolUse group (and groups left
+/// Drops Schliffe's hook from every PostToolUse group (and groups left
 /// empty). Returns whether anything was removed.
 fn remove_ours(settings: &mut Value) -> bool {
     let Some(post) = settings
@@ -330,7 +332,7 @@ mod tests {
     fn stats_off() {
         // Tests must not write to the real stats log.
         // SAFETY: set once, before any thread reads it; same value everywhere.
-        unsafe { std::env::set_var("ELAGIX_NO_STATS", "1") };
+        unsafe { std::env::set_var("SCHLIFFE_NO_STATS", "1") };
     }
 
     #[test]
@@ -347,7 +349,12 @@ mod tests {
         let out = transform(&input, 1280, |_| "h1".into()).unwrap();
         let text = out[0]["text"].as_str().unwrap();
         assert!(!text.contains("gone"));
-        assert!(out[1]["text"].as_str().unwrap().contains("elagix show h1"));
+        assert!(
+            out[1]["text"]
+                .as_str()
+                .unwrap()
+                .contains("schliffe show h1")
+        );
     }
 
     #[test]
@@ -387,7 +394,7 @@ mod tests {
             {"matcher": "Bash", "hooks": [{"type": "command", "command": "my-linter"}]}
         ]}});
         assert!(!remove_ours(&mut s));
-        let ours = json!({"matcher": MATCHER, "hooks": [{"type": "command", "command": "/x/elagix hook post-tool-use"}]});
+        let ours = json!({"matcher": MATCHER, "hooks": [{"type": "command", "command": "/x/schliffe hook post-tool-use"}]});
         s["hooks"]["PostToolUse"].as_array_mut().unwrap().push(ours);
         assert!(remove_ours(&mut s));
         assert_eq!(s["hooks"]["PostToolUse"].as_array().unwrap().len(), 1);
@@ -396,5 +403,14 @@ mod tests {
             s["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
             "my-linter"
         );
+    }
+
+    #[test]
+    fn hook_registered_under_the_old_name_is_recognized() {
+        let mut s = json!({"hooks": {"PostToolUse": [
+            {"matcher": MATCHER, "hooks": [{"type": "command", "command": "/u/.elagix/bin/elagix hook post-tool-use"}]}
+        ]}});
+        assert!(remove_ours(&mut s));
+        assert!(s["hooks"]["PostToolUse"].as_array().unwrap().is_empty());
     }
 }

@@ -1,4 +1,4 @@
-# Contributing to Elagix
+# Contributing to Schliffe
 
 Thanks for your interest. This project is young (v0.1.0, active development) — the process below is deliberately simple.
 

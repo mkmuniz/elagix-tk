@@ -15,8 +15,8 @@ const DEDUP_MIN_BYTES: usize = 200;
 pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     let Some(real_bin) = shim::resolve_real_binary(invoked_name) else {
         // Same message and exit code (127) a shell gives for a missing
-        // command, so scripts probing for the tool behave as without Elagix.
-        eprintln!("{invoked_name}: command not found (elagix shim: no real binary in PATH)");
+        // command, so scripts probing for the tool behave as without Schliffe.
+        eprintln!("{invoked_name}: command not found (schliffe shim: no real binary in PATH)");
         return ExitCode::from(127);
     };
 
@@ -25,7 +25,7 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     // `shim::agent_active`). On Unix this replaces the current process (a real exec).
     if shim::stdout_is_tty() || !shim::agent_active() {
         if let Err(e) = shim::exec_passthrough(&real_bin, rest_args) {
-            eprintln!("elagix: failed to run {invoked_name}: {e}");
+            eprintln!("schliffe: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;
         }
         return ExitCode::SUCCESS; // unreachable on Unix (exec replaces the process)
@@ -116,7 +116,7 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     if subcommand.is_none() && camada_b_match.is_none() && stderr_match.is_none() {
         stats::record_passthrough(&stats::command_key(invoked_name, rest_args));
         if let Err(e) = shim::exec_passthrough(&real_bin, rest_args) {
-            eprintln!("elagix: failed to run {invoked_name}: {e}");
+            eprintln!("schliffe: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;
         }
         return ExitCode::SUCCESS; // unreachable on Unix (exec replaces the process)
@@ -125,7 +125,7 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     let captured = match shim::run_captured(&real_bin, &run_args, stderr_match.is_some()) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("elagix: failed to run {invoked_name}: {e}");
+            eprintln!("schliffe: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -180,21 +180,21 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
 
     // Deduplication (§8.3) — the only one of the two store techniques that
     // actually cuts tokens. Scoped to the agent's real session when it
-    // exposes one (`CLAUDE_CODE_SESSION_ID`, or `ELAGIX_SESSION_ID` for any
+    // exposes one (`CLAUDE_CODE_SESSION_ID`, or `SCHLIFFE_SESSION_ID` for any
     // other agent); otherwise approximated by the time window alone.
     if output.len() >= DEDUP_MIN_BYTES {
-        let hash = store::put(&output); // ensures it's recoverable via `elagix show`
-        let window: u64 = std::env::var("ELAGIX_DEDUP_WINDOW_SECS")
+        let hash = store::put(&output); // ensures it's recoverable via `schliffe show`
+        let window: u64 = std::env::var("SCHLIFFE_DEDUP_WINDOW_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(1800);
-        let session = ["ELAGIX_SESSION_ID", "CLAUDE_CODE_SESSION_ID"]
+        let session = ["SCHLIFFE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"]
             .iter()
             .find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()));
         if let store::Dedup::SeenRecently =
             store::check_and_record_dedup(&output, window, session.as_deref())
         {
-            let msg = format!("(same as previous output — elagix show {hash} to view it again)");
+            let msg = format!("(same as previous output — schliffe show {hash} to view it again)");
             if msg.len() < output.len() {
                 output = msg;
             }
@@ -228,7 +228,7 @@ fn finalize(filtered: Option<String>, raw: &str) -> String {
     let filtered = filtered.map(|f| {
         if f.contains("lines omitted") || f.contains("more changed lines") {
             let hash = store::put(raw);
-            format!("{f}\n(full output: elagix show {hash})")
+            format!("{f}\n(full output: schliffe show {hash})")
         } else {
             f
         }

@@ -21,7 +21,7 @@ const MAX_ARRAY_ITEMS: usize = 10;
 /// (2026-09-24): `read_text_file` on a `config.json` came back with its nulls
 /// dropped, arrays capped and strings cut — an agent that edited and saved
 /// it would corrupt the file. Matched by name, since MCP carries no "this is
-/// a file" flag; extend with `ELAGIX_MCP_RAW_TOOLS=name1,name2`.
+/// a file" flag; extend with `SCHLIFFE_MCP_RAW_TOOLS=name1,name2`.
 const RAW_TOOL_HINTS: &[&str] = &["read", "file", "cat", "open", "download", "blob"];
 
 pub fn is_raw_tool(tool_name: &str) -> bool {
@@ -29,14 +29,14 @@ pub fn is_raw_tool(tool_name: &str) -> bool {
     if RAW_TOOL_HINTS.iter().any(|h| lower.contains(h)) {
         return true;
     }
-    std::env::var("ELAGIX_MCP_RAW_TOOLS")
+    std::env::var("SCHLIFFE_MCP_RAW_TOOLS")
         .map(|v| v.split(',').any(|t| t.trim() == tool_name))
         .unwrap_or(false)
 }
 
 /// `store` saves a raw text and returns its hash — called only when content
 /// was actually cut (truncation or array cap), so the original stays
-/// recoverable via `elagix show <hash>` (business rule 4).
+/// recoverable via `schliffe show <hash>` (business rule 4).
 pub fn compress_tools_call_result(
     msg: &Value,
     tool_name: &str,
@@ -94,7 +94,7 @@ pub fn compress_content_blocks(
     for hash in hints {
         new_content.push(serde_json::json!({
             "type": "text",
-            "text": format!("(elagix trimmed this result — full output: elagix show {hash})"),
+            "text": format!("(schliffe trimmed this result — full output: schliffe show {hash})"),
         }));
     }
     Some(new_content)
@@ -144,7 +144,7 @@ fn compact_json(value: &Value, lossy: &mut bool) -> Value {
             if items.len() > MAX_ARRAY_ITEMS {
                 *lossy = true;
                 out.push(serde_json::json!({
-                    "_elagix_omitted_items": items.len() - MAX_ARRAY_ITEMS
+                    "_schliffe_omitted_items": items.len() - MAX_ARRAY_ITEMS
                 }));
             }
             Value::Array(out)
@@ -196,7 +196,7 @@ mod tests {
         let parsed: Value = serde_json::from_str(text).unwrap();
         let arr = parsed["items"].as_array().unwrap();
         assert_eq!(arr.len(), MAX_ARRAY_ITEMS + 1); // 10 items + marker
-        assert_eq!(arr[MAX_ARRAY_ITEMS]["_elagix_omitted_items"], 20);
+        assert_eq!(arr[MAX_ARRAY_ITEMS]["_schliffe_omitted_items"], 20);
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
             "abc123".into()
         });
         let hint = out["result"]["content"][1]["text"].as_str().unwrap();
-        assert!(hint.contains("elagix show abc123"));
+        assert!(hint.contains("schliffe show abc123"));
     }
 
     #[test]

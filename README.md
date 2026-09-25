@@ -1,12 +1,12 @@
 <div align="center">
 
-# Elagix
+# Schliffe
 
 **Cuts token waste in coding-agent sessions (Claude Code) — for real, without depending on Claude Code features we've already proven broken.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](Cargo.toml)
-[![CI](https://github.com/mkmuniz/elagix-tk/actions/workflows/ci.yml/badge.svg)](https://github.com/mkmuniz/elagix-tk/actions/workflows/ci.yml)
+[![CI](https://github.com/mkmuniz/schliffe-tk/actions/workflows/ci.yml/badge.svg)](https://github.com/mkmuniz/schliffe-tk/actions/workflows/ci.yml)
 
 </div>
 
@@ -16,9 +16,9 @@
 
 While setting up [RTK](https://github.com/rtk-ai/rtk) — the tool that inspired this project — we discovered, by testing it live, that its automatic command-rewriting mechanism depends on the `updatedInput` field returned by Claude Code's `PreToolUse` hooks. That field is **silently ignored on Windows** ([publicly confirmed issue, `anthropics/claude-code` #79321](https://github.com/anthropics/claude-code/issues/79321)). Without that mechanism, RTK never even gets invoked — there's no fallback.
 
-We investigated two more hook candidates for solving the same kind of problem (`UserPromptSubmit`, `PostToolUse.updatedToolOutput`) — all three turned out broken or missing on this platform. Design conclusion: **no Elagix mechanism can depend on a Claude Code hook to mutate a command, a prompt, or an output.** It has to intercept from the outside, in layers Claude Code doesn't even know exist.
+We investigated two more hook candidates for solving the same kind of problem (`UserPromptSubmit`, `PostToolUse.updatedToolOutput`) — all three turned out broken or missing on this platform. Design conclusion: **no Schliffe mechanism can depend on a Claude Code hook to mutate a command, a prompt, or an output.** It has to intercept from the outside, in layers Claude Code doesn't even know exist.
 
-Elagix does this with a **`$PATH` shim** (the same decades-old technique used by `nvm`/`pyenv`/`asdf`) for shell commands, a **JSON-RPC protocol proxy** for MCP tools, and an **extractive summarization** function for prose — three axes of waste, three independent interception mechanisms, none of them dependent on a hook.
+Schliffe does this with a **`$PATH` shim** (the same decades-old technique used by `nvm`/`pyenv`/`asdf`) for shell commands, a **JSON-RPC protocol proxy** for MCP tools, and an **extractive summarization** function for prose — three axes of waste, three independent interception mechanisms, none of them dependent on a hook.
 
 ## What it optimizes
 
@@ -35,7 +35,7 @@ Any other command (`ls`, `curl`, `make`, `jq`, ...) passes straight through, unf
 
 Every percentage below is a real measurement, taken by running the binary against real repositories during this project's development — not an estimate, not a marketing number.
 
-| Command | Raw | Elagix | Reduction |
+| Command | Raw | Schliffe | Reduction |
 |---|---|---|---|
 | `git status` (clean branch) | 174 B | 28 B | 84% |
 | `git log -5` | 9,313 B | 907 B | 90.3% (one line per commit — all 5 stay visible) |
@@ -61,59 +61,59 @@ Requires [Rust](https://rustup.rs) — the installer builds from source (there's
 
 **Linux / macOS / WSL:**
 ```bash
-git clone https://github.com/mkmuniz/elagix-tk.git
-cd elagix-tk
+git clone https://github.com/mkmuniz/schliffe-tk.git
+cd schliffe-tk
 bash install.sh
 ```
 
 **Windows (native, outside WSL):**
 ```powershell
-git clone https://github.com/mkmuniz/elagix-tk.git
-cd elagix-tk
+git clone https://github.com/mkmuniz/schliffe-tk.git
+cd schliffe-tk
 ./install.ps1
 ```
 > ⚠️ `install.ps1` has only been tested in safe mode (no full activation) — none of this project's development machines have native `git`/`cargo`/`npm` on Windows to validate it end to end. See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
 
 After installing, open a new terminal (and reload VS Code / start a new Claude Code session). No need to prefix anything — when an AI agent runs `git status`, `git log`, `cargo test`, etc., the output already comes out filtered. Humans and regular scripts get the untouched output.
 
-Opt-in/out per tool: `ELAGIX_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `ELAGIX_DISABLE=1` turns it off (e.g. `ELAGIX_DISABLE=1 git diff > x.patch`).
+Opt-in/out per tool: `SCHLIFFE_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `SCHLIFFE_DISABLE=1` turns it off (e.g. `SCHLIFFE_DISABLE=1 git diff > x.patch`).
 
 ## Remote MCP servers and images (Claude Code hook)
 
-Some things never touch a shell or a local MCP pipe: **remote MCP servers** (HTTP + OAuth, e.g. Figma, `https://mcp.figma.com/mcp`) and **images** Claude opens with its Read tool or receives from an MCP tool (screenshots). For those, Elagix plugs into Claude Code as a `PostToolUse` hook — **`install.sh` registers it automatically** when Claude Code is installed (`ELAGIX_NO_HOOK=1 bash install.sh` to skip). To manage it by hand:
+Some things never touch a shell or a local MCP pipe: **remote MCP servers** (HTTP + OAuth, e.g. Figma, `https://mcp.figma.com/mcp`) and **images** Claude opens with its Read tool or receives from an MCP tool (screenshots). For those, Schliffe plugs into Claude Code as a `PostToolUse` hook — **`install.sh` registers it automatically** when Claude Code is installed (`SCHLIFFE_NO_HOOK=1 bash install.sh` to skip). To manage it by hand:
 
 ```bash
-elagix hook install     # adds the hook to ~/.claude/settings.json (backup kept)
-elagix hook uninstall   # removes it
+schliffe hook install     # adds the hook to ~/.claude/settings.json (backup kept)
+schliffe hook uninstall   # removes it
 ```
 
-Open a new Claude Code session after installing. After each `Read` or `mcp__*` call, Claude Code hands the result to `elagix hook post-tool-use`, which:
+Open a new Claude Code session after installing. After each `Read` or `mcp__*` call, Claude Code hands the result to `schliffe hook post-tool-use`, which:
 
-- compresses JSON text results of MCP tools (same rules as the stdio proxy: nulls dropped, long strings/arrays trimmed with an `elagix show` hint; file-reading tools never touched);
-- shrinks images whose long edge exceeds 1280px (`ELAGIX_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area, and the API already downscales anything above ~1568px on the long edge or ~1.15 megapixels — so at the default 1280px the saving is modest (measured live: 2400×1500 image, −11%; a Retina screenshot ≈ −7%). Lower caps save much more (1024px ≈ −40%) at the cost of small UI text becoming harder to read.
+- compresses JSON text results of MCP tools (same rules as the stdio proxy: nulls dropped, long strings/arrays trimmed with an `schliffe show` hint; file-reading tools never touched);
+- shrinks images whose long edge exceeds 1280px (`SCHLIFFE_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area, and the API already downscales anything above ~1568px on the long edge or ~1.15 megapixels — so at the default 1280px the saving is modest (measured live: 2400×1500 image, −11%; a Retina screenshot ≈ −7%). Lower caps save much more (1024px ≈ −40%) at the cost of small UI text becoming harder to read.
 
 Anything it doesn't recognize is left untouched (for built-in tools, Claude Code also discards a replacement that doesn't match the tool's output schema).
 
-> ⚠️ **Not supported on native Windows** — Claude Code's hook output replacement was verified broken there (the reason this project avoided hooks in the first place). Works on macOS, Linux and WSL; `elagix hook install` refuses to run on native Windows.
+> ⚠️ **Not supported on native Windows** — Claude Code's hook output replacement was verified broken there (the reason this project avoided hooks in the first place). Works on macOS, Linux and WSL; `schliffe hook install` refuses to run on native Windows.
 
 ## Checking that it's saving
 
 ```bash
-elagix stats
+schliffe stats
 ```
 
-Shows how many commands AI agents ran through Elagix, how many were filtered, bytes before/after and estimated tokens saved (last 24h, 7 days, all time), the commands saving the most, and the ones that passed through with no filter yet (candidates for a new rule). Only the command name and sizes are logged (`~/.elagix/stats.log`) — never arguments or output. `ELAGIX_NO_STATS=1` turns it off.
+Shows how many commands AI agents ran through Schliffe, how many were filtered, bytes before/after and estimated tokens saved (last 24h, 7 days, all time), the commands saving the most, and the ones that passed through with no filter yet (candidates for a new rule). Only the command name and sizes are logged (`~/.schliffe/stats.log`) — never arguments or output. `SCHLIFFE_NO_STATS=1` turns it off.
 
 ## Using the MCP proxy
 
-MCP servers aren't intercepted automatically — wrap each one you want compressed by putting `elagix mcp [--keep-schemas] --` in front of its command. In Claude Code:
+MCP servers aren't intercepted automatically — wrap each one you want compressed by putting `schliffe mcp [--keep-schemas] --` in front of its command. In Claude Code:
 
 ```bash
-claude mcp add filesystem -- elagix mcp --keep-schemas -- npx -y @modelcontextprotocol/server-filesystem ~/projects
+claude mcp add filesystem -- schliffe mcp --keep-schemas -- npx -y @modelcontextprotocol/server-filesystem ~/projects
 ```
 
 - **`--keep-schemas`** (recommended for Claude Code): leaves `tools/list` untouched and only compresses tool results. Claude Code already loads MCP tool schemas on demand through its own tool search, which relies on the full descriptions — shrinking them there costs more than it saves. Drop the flag for clients that load every schema up front.
-- Results are compressed only when they're JSON (nulls dropped, long strings/arrays trimmed with an `elagix show <hash>` recovery hint). Tools that read files (`read`, `file`, `cat`, `open`, `download` in the name, or listed in `ELAGIX_MCP_RAW_TOOLS=a,b`) are never touched, so a file's content always arrives intact.
+- Results are compressed only when they're JSON (nulls dropped, long strings/arrays trimmed with an `schliffe show <hash>` recovery hint). Tools that read files (`read`, `file`, `cat`, `open`, `download` in the name, or listed in `SCHLIFFE_MCP_RAW_TOOLS=a,b`) are never touched, so a file's content always arrives intact.
 - If the server dies mid-call, pending requests get a JSON-RPC error instead of hanging.
 
 ## How it works
@@ -122,14 +122,14 @@ claude mcp add filesystem -- elagix mcp --keep-schemas -- npx -y @modelcontextpr
 sequenceDiagram
     participant Claude as Claude Code
     participant Shell
-    participant Shim as ~/.elagix/shims/git (Elagix binary)
+    participant Shim as ~/.schliffe/shims/git (Schliffe binary)
     participant RealGit as real git (original PATH)
     Claude->>Shell: runs "git status" (no prefix)
     Shell->>Shim: resolves "git" -> the shim (ahead in PATH)
     Shim->>Shim: is stdout a TTY, or is no AI agent calling?
     alt TTY or no agent (human, VS Code Git panel, git hooks, scripts)
         Shim->>RealGit: exec directly, no filtering
-    else AI agent capturing (CLAUDECODE / AI_AGENT / ELAGIX_FORCE set)
+    else AI agent capturing (CLAUDECODE / AI_AGENT / SCHLIFFE_FORCE set)
         Shim->>RealGit: runs the real git, captures stdout + exit code
         RealGit-->>Shim: raw output
         Shim->>Shim: Layer A (dedicated parser) or Layer B (declarative rule)
@@ -146,7 +146,7 @@ Motivated by a real, documented risk ([arXiv 2607.13071](https://arxiv.org/abs/2
 1. Exit code always preserved and signaled unambiguously.
 2. No "success"/"no changes" shortcut if the process failed or was interrupted.
 3. **Fail-open**: an error in the filter lets the raw output through unmodified.
-4. Raw output always recoverable (`elagix show <hash>`).
+4. Raw output always recoverable (`schliffe show <hash>`).
 5. Never falsify or infer a result — only reformats what actually came out.
 6. **Filtered output can never be larger than the original** — if it doesn't shrink, it isn't applied.
 7. Always inherits the parent process's own `$PATH`/environment — never resolves a binary on its own.
@@ -160,7 +160,7 @@ src/
   main.rs        # entry point: meta-command (core::meta) vs shim (bornes::comandos)
   core/
     store.rs      # content-addressed store — cache, progressive disclosure, dedup
-    meta.rs        # routes `elagix show/store/compress/mcp`
+    meta.rs        # routes `schliffe show/store/compress/mcp`
   bornes/
     comandos/      # $PATH shim + Layer A (parsers) + Layer B (TOML rules)
     mcp/            # JSON-RPC proxy, schema lazy-loading + result compression

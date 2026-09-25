@@ -4,7 +4,7 @@
 # problem line is padded into columns. Paths become relative, padding is
 # squeezed, blank separators and the package-manager header go away — every
 # problem (position, severity, message, rule) and the totals stay. Very long
-# reports are capped, with the full text recoverable via `elagix show`.
+# reports are capped, with the full text recoverable via `schliffe show`.
 match_any = [
     ["pnpm", "lint|lint:fix|lint:styles"],
     ["pnpm", "run", "lint|lint:fix|lint:styles"],

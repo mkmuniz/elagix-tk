@@ -10,11 +10,11 @@ use std::io::Cursor;
 /// dimensions is the only thing that saves tokens. 1280px keeps UI text
 /// readable on a Retina screenshot (≈0.9× its logical size) while cutting a
 /// full-size screenshot roughly in half versus what the API would otherwise
-/// accept. `ELAGIX_IMAGE_MAX_EDGE` overrides it; `0` turns resizing off.
+/// accept. `SCHLIFFE_IMAGE_MAX_EDGE` overrides it; `0` turns resizing off.
 const DEFAULT_MAX_EDGE: u32 = 1280;
 
 pub fn max_edge() -> u32 {
-    std::env::var("ELAGIX_IMAGE_MAX_EDGE")
+    std::env::var("SCHLIFFE_IMAGE_MAX_EDGE")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_MAX_EDGE)
@@ -24,7 +24,7 @@ pub fn max_edge() -> u32 {
 /// (width×height/750), after the API's own downscale — images whose long
 /// edge exceeds 1568px or that exceed ~1.15 megapixels are resized by the
 /// API before the model sees them. Counting the raw size instead would
-/// credit Elagix with savings the API was going to make anyway.
+/// credit Schliffe with savings the API was going to make anyway.
 pub fn image_tokens(width: u32, height: u32) -> u64 {
     let (w, h) = (width as f64, height as f64);
     let scale = 1f64
