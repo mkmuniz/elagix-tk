@@ -42,8 +42,7 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 ## Quality / process
 
 - **`bytes/4` as the token estimate**, never a real tokenizer — the same approximation RTK/snip use, followed for comparison consistency (specs §5.4.1), not precision. A real tokenizer is a phase-2 idea (specs §11).
-- **Determinism (specs §8.4) never formally audited** — assumed "by construction" (no layer intentionally uses a timestamp/non-deterministic ordering), but there's no dedicated test proving this to protect the provider's prompt cache.
-- **No end-to-end integration test in `cargo test`** — every validation of the compiled binary's actual behavior (live shim, `git show` cache, PATH activation) was manual/live this session, not part of the automated suite.
+- **End-to-end tests are Unix-only** (`tests/e2e.rs`, symlinks + sh scripts) — Windows' copy-based shims aren't exercised by `cargo test`. On macOS they take ~12s, almost all of it the OS scanning each freshly created fake-tool script on first exec; the shim's own overhead in real use is ~20ms.
 - **A known and accepted architectural ceiling, not a bug**: static per-command rules are measurably worse than pruning conditioned on the agent's task/intent (arXiv 2604.04979/2604.19572, specs §11) — would require a trained model or intent context passed to the filter, against the project's deterministic philosophy. Recorded, not pursued.
 - **Dilution effect** (specs §11): a token reduction in one command's output doesn't equal a reduction in the session's total cost (prompt, history, system prompt also count) — be careful reporting whole-session savings based only on per-command savings.
 

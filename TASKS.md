@@ -43,6 +43,6 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 ## Quality / process
 
-- [ ] Write end-to-end integration tests against the compiled binary (today all validation of real behavior is manual/live, not part of `cargo test`).
-- [ ] Formally audit determinism (protects the provider's prompt cache, specs §8.4) — today it's only "by construction", with no dedicated test.
+- [x] End-to-end tests against the compiled binary — `tests/e2e.rs` (12 tests: agent gating, exit codes, 127, self-recursion, `elagix show`, session dedup, stderr filters, rule 6, `compress`).
+- [x] Determinism test — `tests/e2e.rs::output_is_deterministic` (same input, fresh store, byte-identical output).
 - [x] Set up CI (cross-platform build + test) — Linux, Windows cross-compile, macOS.
