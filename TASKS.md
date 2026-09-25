@@ -28,12 +28,12 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 ## `bornes/mcp`
 
-- [ ] Test against a real production MCP server (today only validated against a fake server written for testing).
-- [ ] Automate, or at least formally document, the step of rewriting an MCP server's config to `elagix mcp -- <real command>` — today it's 100% manual and hasn't been done on any real server.
+- [x] Test against a real production MCP server — `@modelcontextprotocol/server-filesystem` (2026-09-24): `tools/list` −77%, `get_tool_schema` round trip OK. Found and fixed: JSON *file contents* were being compressed (corruption risk) — file-reading tools are now never touched.
+- [x] Document wrapping an MCP server (README, "Using the MCP proxy"). Automatic rewriting of client configs left out on purpose — editing `~/.claude.json` behind the user's back is riskier than one `claude mcp add` line.
 - [ ] Support OAuth and remote HTTP streaming (stdio only today).
 - [ ] Field pruning by semantic relevance (pagination, HATEOAS links, redundant timestamps) — today only the 3 mechanical techniques (null-strip, truncation, array cap).
 - [ ] Handle/compress requests initiated by the MCP server itself (e.g. `sampling/createMessage`) — pass straight through today.
-- [ ] Test and handle the proxy's behavior if the real server dies in the middle of a pending call.
+- [x] Server dying mid-call — pending requests now get a JSON-RPC error (validated live, 0.02s) instead of hanging forever.
 
 ## `bornes/prosa`
 

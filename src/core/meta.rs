@@ -19,10 +19,18 @@ pub fn run(args: &[String]) -> ExitCode {
             .skip_while(|a| a.as_str() != "--")
             .skip(1);
         let server_args: Vec<String> = after_sep.cloned().collect();
+        // Options live between "mcp" and "--".
+        let lazy_schemas = !args
+            .iter()
+            .skip(1)
+            .take_while(|a| a.as_str() != "--")
+            .any(|a| a == "--keep-schemas");
         return match server_args.split_first() {
-            Some((cmd, rest)) => bornes::mcp::run(cmd, rest),
+            Some((cmd, rest)) => bornes::mcp::run(cmd, rest, lazy_schemas),
             None => {
-                eprintln!("usage: elagix mcp -- <real MCP server command> [args...]");
+                eprintln!(
+                    "usage: elagix mcp [--keep-schemas] -- <real MCP server command> [args...]"
+                );
                 ExitCode::FAILURE
             }
         };

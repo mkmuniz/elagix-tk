@@ -25,7 +25,7 @@ Elagix does this with a **`$PATH` shim** (the same decades-old technique used by
 | Module (`borne`) | What it compresses | Mechanism | Status |
 |---|---|---|---|
 | `bornes/comandos` | Output of `git`, `cargo`, `pytest`, `docker`, `npm`, `pnpm`, `yarn`, `pip`, `dotnet`, `go`, `terraform` | `$PATH` shim — intercepts, filters, returns | ✅ Active, validated live |
-| `bornes/mcp` | MCP tool schema (lazy loading) + call result | JSON-RPC proxy over stdio | ⚠️ Works, but never wired up to a real MCP server (only a test fixture) |
+| `bornes/mcp` | MCP tool schema (lazy loading) + call result | JSON-RPC proxy over stdio | ✅ Validated against a real server (`@modelcontextprotocol/server-filesystem`); opt-in per server |
 | `bornes/prosa` | Commit message body (`git log`/`git show`) | TF-IDF extractive summarization (no model, no embeddings) | ✅ Active, integrated into `comandos`'s Layer A |
 
 Any other command (`ls`, `curl`, `make`, `jq`, ...) passes straight through, unfiltered — see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for full coverage details and what's missing.
@@ -44,6 +44,7 @@ Every percentage below is a real measurement, taken by running the binary agains
 | `docker build` (3-step Dockerfile) | 1,719 B | 175 B | 89.8% |
 | `npm install` (deprecated deps) | 675 B | 204 B | 69.8% |
 | MCP `tools/list` (2 tools) | 1,047 B | 566 B | 45.9% |
+| MCP `tools/list` (real filesystem server, 14 tools) | 13,018 B | 2,940 B | 77.4% |
 | MCP `tools/call` (JSON result) | 16,658 B | 4,530 B | 72.8% |
 | Repeated `git show <sha>` (cache) | — | — | ~23× faster, byte-identical |
 | Repeated command (dedup) | 316 B | 75 B | short reference instead of the full text |
@@ -72,6 +73,18 @@ cd elagix-tk
 After installing, open a new terminal (and reload VS Code / start a new Claude Code session). No need to prefix anything — when an AI agent runs `git status`, `git log`, `cargo test`, etc., the output already comes out filtered. Humans and regular scripts get the untouched output.
 
 Opt-in/out per tool: `ELAGIX_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `ELAGIX_DISABLE=1` turns it off (e.g. `ELAGIX_DISABLE=1 git diff > x.patch`).
+
+## Using the MCP proxy
+
+MCP servers aren't intercepted automatically — wrap each one you want compressed by putting `elagix mcp [--keep-schemas] --` in front of its command. In Claude Code:
+
+```bash
+claude mcp add filesystem -- elagix mcp --keep-schemas -- npx -y @modelcontextprotocol/server-filesystem ~/projects
+```
+
+- **`--keep-schemas`** (recommended for Claude Code): leaves `tools/list` untouched and only compresses tool results. Claude Code already loads MCP tool schemas on demand through its own tool search, which relies on the full descriptions — shrinking them there costs more than it saves. Drop the flag for clients that load every schema up front.
+- Results are compressed only when they're JSON (nulls dropped, long strings/arrays trimmed with an `elagix show <hash>` recovery hint). Tools that read files (`read`, `file`, `cat`, `open`, `download` in the name, or listed in `ELAGIX_MCP_RAW_TOOLS=a,b`) are never touched, so a file's content always arrives intact.
+- If the server dies mid-call, pending requests get a JSON-RPC error instead of hanging.
 
 ## How it works
 

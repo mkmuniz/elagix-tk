@@ -27,11 +27,11 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 
 ## `bornes/mcp`
 
-- **Only tested against a fake MCP server** (our own fixture, `fake_mcp_server.py`), never against a real production server. The mechanism is validated, real-world compatibility isn't.
+- **Validated against one real MCP server only** (`@modelcontextprotocol/server-filesystem`, 2026-09-24). Other servers may shape results differently. File-reading tools are detected by name (`read`/`file`/`cat`/`open`/`download`/`blob`), which is a heuristic: a tool returning file content under another name would still get its JSON compacted — add it to `ELAGIX_MCP_RAW_TOOLS`.
+- **Schema lazy-loading overlaps with Claude Code's own tool deferral.** Use `--keep-schemas` there (see README); lazy-loading is still the default for other clients.
 - **Stdio only.** OAuth and remote HTTP streaming aren't supported (specs §13, an explicit v1 scope decision).
 - **No field pruning by semantic relevance** (pagination, HATEOAS links, redundant timestamps) — only the 3 purely mechanical techniques (null-strip, string truncation, array cap). Pruning by relevance would require knowing the specific API, which would go against business rule 5.
 - **Requests the MCP server itself initiates** (e.g. `sampling/createMessage`) pass straight through with no interception or compression — not the token-waste axis that motivated this borne, but also not addressed.
-- **No explicit handling of the child process crashing** mid-session (what happens to the proxy if the real server dies in the middle of a pending call hasn't been exercised).
 
 ## `bornes/prosa`
 

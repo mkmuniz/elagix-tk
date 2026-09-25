@@ -23,7 +23,11 @@ use std::thread;
 /// `tools/list` response is knowing the matching request was a `tools/list`).
 enum PendingKind {
     ToolsList,
-    ToolsCall,
+    /// Carries the tool name: file-reading tools are never compressed.
+    ToolsCall(String),
+    /// Any other request — tracked only so it can get an error response if
+    /// the server dies before answering.
+    Other,
 }
 
 #[derive(Default)]
@@ -32,7 +36,12 @@ struct ProxyState {
     schemas: Mutex<HashMap<String, Value>>,
 }
 
-pub fn run(server_cmd: &str, server_args: &[String]) -> ExitCode {
+/// `lazy_schemas = false` (`elagix mcp --keep-schemas`) leaves `tools/list`
+/// untouched and only compresses call results — for clients that already
+/// defer tool schemas themselves (current Claude Code loads MCP schemas on
+/// demand via its own tool search, which also relies on the full
+/// descriptions this proxy would shorten).
+pub fn run(server_cmd: &str, server_args: &[String], lazy_schemas: bool) -> ExitCode {
     let mut child = match Command::new(server_cmd)
         .args(server_args)
         .stdin(Stdio::piped())
@@ -62,7 +71,7 @@ pub fn run(server_cmd: &str, server_args: &[String]) -> ExitCode {
             if line.trim().is_empty() {
                 continue;
             }
-            handle_client_message(&line, &state_up, &child_stdin_up);
+            handle_client_message(&line, &state_up, &child_stdin_up, lazy_schemas);
         }
         // `child_stdin_up` gets dropped here, at the end of the closure.
     });
@@ -88,9 +97,35 @@ pub fn run(server_cmd: &str, server_args: &[String]) -> ExitCode {
         handle_server_message(&line, &state);
     }
 
-    let _ = upstream.join();
-    match child.wait() {
-        Ok(status) => ExitCode::from(status.code().unwrap_or(0) as u8),
+    // The server's stdout closed: either a normal shutdown (the client
+    // closed stdin first) or the server died. Any request still pending
+    // would otherwise wait forever — answer each with a JSON-RPC error
+    // (validated 2026-09-24 with a server that exits mid-call).
+    let status = child.wait();
+    let orphaned: Vec<String> = state
+        .pending
+        .lock()
+        .unwrap()
+        .drain()
+        .map(|(id, _)| id)
+        .collect();
+    for id in orphaned {
+        let id: Value = serde_json::from_str(&id).unwrap_or(Value::Null);
+        write_value_to_client(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32000, "message": "MCP server exited before responding (elagix proxy)" },
+        }));
+    }
+
+    // Only wait for the client->server thread on a normal shutdown: if the
+    // server died while the client is still connected, that thread is
+    // blocked reading the client's stdin and returning from here ends it.
+    if upstream.is_finished() {
+        let _ = upstream.join();
+    }
+    match status {
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1) as u8),
         Err(_) => ExitCode::FAILURE,
     }
 }
@@ -119,6 +154,7 @@ fn handle_client_message(
     line: &str,
     state: &Arc<ProxyState>,
     child_stdin: &Arc<Mutex<std::process::ChildStdin>>,
+    lazy_schemas: bool,
 ) {
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
         write_raw_line(child_stdin, line); // fail-open (rule 3): didn't parse, forward as-is
@@ -130,17 +166,25 @@ fn handle_client_message(
 
     if method == Some("tools/call") {
         let tool_name = msg.pointer("/params/name").and_then(Value::as_str);
-        if tool_name == Some("get_tool_schema") {
+        if lazy_schemas && tool_name == Some("get_tool_schema") {
             respond_get_tool_schema(&msg, id, state);
             return; // local short-circuit — specs §6.1, step 2
         }
     }
 
     if let Some(id) = &id {
+        // Only requests (with a method) — a message with an id but no
+        // method is the client answering a server-initiated request.
         let kind = match method {
-            Some("tools/list") => Some(PendingKind::ToolsList),
-            Some("tools/call") => Some(PendingKind::ToolsCall),
-            _ => None,
+            Some("tools/list") if lazy_schemas => Some(PendingKind::ToolsList),
+            Some("tools/call") => Some(PendingKind::ToolsCall(
+                msg.pointer("/params/name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            )),
+            Some(_) => Some(PendingKind::Other),
+            None => None,
         };
         if let Some(kind) = kind {
             state.pending.lock().unwrap().insert(id_key(id), kind);
@@ -198,8 +242,10 @@ fn handle_server_message(line: &str, state: &Arc<ProxyState>) {
 
     let out = match kind {
         Some(PendingKind::ToolsList) => schema::transform_tools_list(&msg, &state.schemas),
-        Some(PendingKind::ToolsCall) => compress::compress_tools_call_result(&msg),
-        None => {
+        Some(PendingKind::ToolsCall(tool)) => {
+            compress::compress_tools_call_result(&msg, &tool, crate::core::store::put)
+        }
+        Some(PendingKind::Other) | None => {
             write_value_to_client(&msg);
             return;
         }
