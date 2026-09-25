@@ -77,6 +77,14 @@ After installing, open a new terminal (and reload VS Code / start a new Claude C
 
 Opt-in/out per tool: `ELAGIX_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `ELAGIX_DISABLE=1` turns it off (e.g. `ELAGIX_DISABLE=1 git diff > x.patch`).
 
+## Checking that it's saving
+
+```bash
+elagix stats
+```
+
+Shows how many commands AI agents ran through Elagix, how many were filtered, bytes before/after and estimated tokens saved (last 24h, 7 days, all time), the commands saving the most, and the ones that passed through with no filter yet (candidates for a new rule). Only the command name and sizes are logged (`~/.elagix/stats.log`) — never arguments or output. `ELAGIX_NO_STATS=1` turns it off.
+
 ## Using the MCP proxy
 
 MCP servers aren't intercepted automatically — wrap each one you want compressed by putting `elagix mcp [--keep-schemas] --` in front of its command. In Claude Code:

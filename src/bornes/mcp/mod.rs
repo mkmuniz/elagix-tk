@@ -240,15 +240,23 @@ fn handle_server_message(line: &str, state: &Arc<ProxyState>) {
         _ => None,
     };
 
-    let out = match kind {
-        Some(PendingKind::ToolsList) => schema::transform_tools_list(&msg, &state.schemas),
-        Some(PendingKind::ToolsCall(tool)) => {
-            compress::compress_tools_call_result(&msg, &tool, crate::core::store::put)
-        }
+    let (out, key) = match kind {
+        Some(PendingKind::ToolsList) => (
+            schema::transform_tools_list(&msg, &state.schemas),
+            "mcp tools/list".to_string(),
+        ),
+        Some(PendingKind::ToolsCall(tool)) => (
+            compress::compress_tools_call_result(&msg, &tool, crate::core::store::put),
+            format!("mcp {tool}"),
+        ),
         Some(PendingKind::Other) | None => {
             write_value_to_client(&msg);
             return;
         }
     };
+    let after = serde_json::to_string(&out)
+        .map(|s| s.len())
+        .unwrap_or(line.len());
+    crate::core::stats::record(&key, line.len(), after);
     write_value_to_client(&out);
 }

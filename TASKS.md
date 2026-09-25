@@ -45,6 +45,8 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 ## Quality / process
 
+- [x] `elagix stats` — savings report (24h/7d/all time, top savers, unfiltered commands), fed by a size-only log from the shim and the MCP proxy (2026-09-25).
+
 - [x] End-to-end tests against the compiled binary — `tests/e2e.rs` (12 tests: agent gating, exit codes, 127, self-recursion, `elagix show`, session dedup, stderr filters, rule 6, `compress`).
 - [x] Determinism test — `tests/e2e.rs::output_is_deterministic` (same input, fresh store, byte-identical output).
 - [x] Set up CI (cross-platform build + test) — Linux, Windows cross-compile, macOS.

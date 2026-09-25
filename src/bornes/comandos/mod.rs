@@ -2,7 +2,7 @@ mod camada_b;
 mod filters;
 mod shim;
 
-use crate::core::store;
+use crate::core::{stats, store};
 use std::process::ExitCode;
 
 /// Minimum size for dedup to kick in (specs §8.3) — below this, the
@@ -114,6 +114,7 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     // exits — found 2026-09-24: `pnpm dev`/`npm run dev` (servers that never
     // exit) showed the agent nothing at all while running.
     if subcommand.is_none() && camada_b_match.is_none() && stderr_match.is_none() {
+        stats::record_passthrough(&stats::command_key(invoked_name, rest_args));
         if let Err(e) = shim::exec_passthrough(&real_bin, rest_args) {
             eprintln!("elagix: failed to run {invoked_name}: {e}");
             return ExitCode::FAILURE;
@@ -150,12 +151,17 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     };
     let mut output = finalize(filtered, &raw);
 
+    let mut before = raw.len();
+    let mut after_err = 0;
+
     // stderr is written first: tools that split their output usually emit
     // progress/warnings (stderr) before the final summary (stdout).
     if let (Some(f), Some(err)) = (stderr_match, &captured.stderr) {
         let raw_err = String::from_utf8_lossy(err);
         let filtered_err = camada_b::apply_stderr(&f.pipeline, &raw_err, captured.exit_code);
         let out_err = finalize(Some(filtered_err), &raw_err);
+        before += raw_err.len();
+        after_err = out_err.len();
         if !out_err.trim().is_empty() {
             eprint!("{out_err}");
             if !out_err.ends_with('\n') {
@@ -194,6 +200,12 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
             }
         }
     }
+
+    stats::record(
+        &stats::command_key(invoked_name, rest_args),
+        before,
+        output.len() + after_err,
+    );
 
     print!("{output}");
     if !output.ends_with('\n') {

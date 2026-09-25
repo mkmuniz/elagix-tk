@@ -316,3 +316,22 @@ fn unfiltered_long_running_command_streams_live() {
         "output was buffered ({elapsed:?})"
     );
 }
+
+#[test]
+fn stats_record_agent_commands_only_without_arguments() {
+    let sb = git_sandbox();
+    sb.run("git", &["log", "--author=secret-token"], true, &[]); // filtered
+    sb.run("git", &["push", "origin"], true, &[]); // no filter: passthrough
+    sb.run("git", &["log"], false, &[]); // not an agent: never recorded
+
+    let log = fs::read_to_string(sb.root.join(".elagix").join("stats.log")).unwrap();
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(lines.len(), 2, "{log}");
+    assert!(lines[0].contains("\tgit log\t"));
+    assert!(lines[1].ends_with("\tgit push\t-\t-"));
+    assert!(!log.contains("secret-token") && !log.contains("origin"));
+
+    let report = stdout(&sb.run("elagix", &["stats"], false, &[]));
+    assert!(report.contains("top savings"), "{report}");
+    assert!(report.contains("git push 1×"), "{report}");
+}
