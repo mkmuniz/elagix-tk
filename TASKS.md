@@ -17,7 +17,8 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 - [x] First batch of long-tail filters (2026-09-24): npm/pnpm/yarn/pip install, docker pull/build, dotnet, cargo stderr, go — plus stderr support in Layer B (`stream = "stderr"|"both"`).
 - [ ] Write TOML filters for the remaining long-tail commands (RTK audit, specs §10): `go-build`, `tsc`, `rg`, `make`, `jq`, `poetry`, `uv`, `mise`, `jj`, `nx`, `turbo`, `pre-commit`, `grep`, `fd`, `tree`, `wc`, `df`, `stat`, `shellcheck`, `yamllint`, `oxlint`, `ruff-format`, `cargo-clippy`, `ls-la`, `golangci-lint`, among others.
 - [x] ~~Make Layer B's pipeline order configurable~~ — it already is: steps run in the order the TOML lists them (the "fixed order" note was wrong).
-- [ ] Implement the catalog actions (specs §5.3) still missing: `group_by`, `json_extract`/`json_schema`/`ndjson_stream`, `regex_extract`, `state_machine`, `aggregate`, `format_template`, `compact_path`.
+- [x] Catalog actions `compact_path`, `collapse_lines_matching` (aggregate-lite, with recovery hint) and `squeeze_spaces`; `match_any` for rules reached through several invocations (2026-09-24).
+- [ ] Remaining catalog actions: `group_by`, `json_extract`/`json_schema`/`ndjson_stream`, `regex_extract`, `state_machine`, `format_template`.
 - [ ] Build a Layer A parser for file reading (`read`/`smart`) — unblocks the "summarize a long docstring/comment" use case via `bornes/prosa`.
 
 ## Cache, progressive disclosure, and dedup (`core/store`)

@@ -9,9 +9,17 @@ pub use engine::{apply, apply_stderr};
 /// requires the first N arguments to match exactly (e.g. ["images"] to only
 /// trigger on `docker images`, not `docker ps`). An element can list
 /// alternatives separated by `|` (e.g. ["install|i|ci"]).
+///
+/// `match_any` is the alternative for rules reached through several
+/// invocations — each entry is `[command, args prefix...]`, e.g.
+/// `[["pnpm", "build"], ["npm", "run", "build"]]`. When set,
+/// `match_command`/`match_args_prefix` are ignored.
 #[derive(Deserialize, Debug)]
 pub struct FilterFile {
+    #[serde(default)]
     pub match_command: String,
+    #[serde(default)]
+    pub match_any: Vec<Vec<String>>,
     #[serde(default)]
     pub match_args_prefix: Vec<String>,
     /// Which output stream the pipeline applies to (default: stdout).
@@ -49,10 +57,9 @@ impl StreamSpec {
     }
 }
 
-/// Layer B action catalog (specs.md §5.3). Only the highest-value subset
-/// makes it into v1 — `group_by`, `json_extract`/`json_schema`,
-/// `state_machine`, `aggregate`, `format_template`, and `compact_path` are
-/// left for later (no v1 command needs them yet).
+/// Layer B action catalog (specs.md §5.3). Implemented as real filters
+/// needed them — `group_by`, `json_extract`/`json_schema`, `state_machine`
+/// and `format_template` are still left for later.
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Step {
@@ -84,6 +91,20 @@ pub enum Step {
     OnEmpty {
         message: String,
     },
+    /// Rewrites absolute paths under the current directory as relative ones
+    /// (and `$HOME` as `~`) — linters and build tools repeat the full path
+    /// on every file.
+    CompactPath,
+    /// Replaces every line matching any pattern with ONE marker, at the
+    /// position of the first match: `[+N lines omitted: <label>]` — which
+    /// also triggers the `elagix show` recovery hint.
+    CollapseLinesMatching {
+        patterns: Vec<String>,
+        label: String,
+    },
+    /// Collapses runs of 2+ spaces inside a line (column alignment) into
+    /// one, keeping leading indentation.
+    SqueezeSpaces,
 }
 
 /// Filters embedded in the binary (specs.md §5.2 — long tail without needing
@@ -115,6 +136,10 @@ const EMBEDDED: &[(&str, &str)] = embedded![
     "cargo-stderr",
     "go-test",
     "go-stderr",
+    "js-build",
+    "js-lint",
+    "git-pull",
+    "docker-compose-build",
 ];
 
 /// Loads the embedded filters plus any extra `.toml` in
@@ -168,7 +193,7 @@ use std::path::PathBuf;
 
 /// Finds the first filter for `stream` whose `match_command` matches the
 /// invoked binary and whose `match_args_prefix` (if any) is a prefix of the
-/// real arguments.
+/// real arguments — or, for filters using `match_any`, any of its entries.
 pub fn find_match<'a>(
     filters: &'a [FilterFile],
     invoked_name: &str,
@@ -177,13 +202,24 @@ pub fn find_match<'a>(
 ) -> Option<&'a FilterFile> {
     filters.iter().find(|f| {
         f.stream.covers(stream)
-            && f.match_command == invoked_name
-            && rest_args.len() >= f.match_args_prefix.len()
-            && rest_args
-                .iter()
-                .zip(f.match_args_prefix.iter())
-                .all(|(a, b)| b.split('|').any(|alt| alt == a))
+            && if f.match_any.is_empty() {
+                f.match_command == invoked_name && prefix_matches(&f.match_args_prefix, rest_args)
+            } else {
+                f.match_any.iter().any(|alt| {
+                    alt.split_first().is_some_and(|(cmd, prefix)| {
+                        cmd == invoked_name && prefix_matches(prefix, rest_args)
+                    })
+                })
+            }
     })
+}
+
+fn prefix_matches(prefix: &[String], rest_args: &[String]) -> bool {
+    rest_args.len() >= prefix.len()
+        && rest_args
+            .iter()
+            .zip(prefix.iter())
+            .all(|(a, b)| b.split('|').any(|alt| alt == a))
 }
 
 #[cfg(test)]
@@ -222,7 +258,7 @@ mod tests {
             let m = find_match(&filters, "npm", &args(&[sub, "x"]), Stream::Stderr);
             assert_eq!(m.map(|f| f.match_command.as_str()), Some("npm"), "{sub}");
         }
-        assert!(find_match(&filters, "npm", &args(&["run", "build"]), Stream::Stdout).is_none());
+        assert!(find_match(&filters, "npm", &args(&["run", "dev"]), Stream::Stdout).is_none());
         // docker build only targets stderr; docker images only stdout.
         assert!(find_match(&filters, "docker", &args(&["build", "."]), Stream::Stdout).is_none());
         assert!(find_match(&filters, "docker", &args(&["build", "."]), Stream::Stderr).is_some());
@@ -316,6 +352,121 @@ mod tests {
             }
             assert!(out.len() < raw.len(), "{name}: didn't shrink");
         }
+    }
+
+    /// Real output from the dev machine's stack (Next.js, Vite, ESLint, git,
+    /// compose — 2026-09-24).
+    #[test]
+    fn web_stack_fixtures() {
+        let cases: &[(&str, &str, &[&str], &[&str])] = &[
+            (
+                "js-build",
+                include_str!("../filters-toml/fixtures/next-build.stdout.txt"),
+                &[
+                    "> next build",
+                    "Next.js 16.3.6",
+                    "Compiled successfully",
+                    "(17/17)",
+                    "[+17 lines omitted: route table]",
+                ],
+                &["/about", "(4/17)", "Collecting page data", "(Static)"],
+            ),
+            (
+                "js-build",
+                include_str!("../filters-toml/fixtures/next-build-fail.stdout.txt"),
+                &["app/broken/page.tsx(1,7): error TS2322", "ELIFECYCLE"],
+                &["Running TypeScript ..."],
+            ),
+            (
+                "js-build",
+                include_str!("../filters-toml/fixtures/vite-build.stdout.txt"),
+                &[
+                    "vite v8.3.1",
+                    "11 modules transformed",
+                    "built in 1.49s",
+                    "[+3 lines omitted: build asset sizes]",
+                ],
+                &["transforming...", "gzip: 0.15 kB"],
+            ),
+            (
+                "js-lint",
+                include_str!("../filters-toml/fixtures/next-lint.stdout.txt"),
+                &[
+                    "1:23 error Unexpected any. Specify a different type @typescript-eslint/no-explicit-any",
+                    "24 problems (18 errors, 6 warnings)",
+                ],
+                &["error    Unexpected"],
+            ),
+            (
+                "git-pull",
+                include_str!("../filters-toml/fixtures/git-pull.stdout.txt"),
+                &[
+                    "Updating 2e42548..137537e",
+                    "Fast-forward",
+                    "26 files changed",
+                    "[+26 lines omitted: diffstat, one line per file]",
+                    "[+26 lines omitted: file mode changes]",
+                ],
+                &["Comp13.tsx", "create mode"],
+            ),
+            (
+                "docker-compose-build",
+                include_str!("../filters-toml/fixtures/compose-build.stdout.txt"),
+                &["[2/3] RUN echo hi > /x"],
+                &["[internal]", "provenance", "exporting"],
+            ),
+        ];
+        for (name, raw, keep, drop) in cases {
+            let out = engine::apply(&embedded(name).pipeline, raw, 0);
+            for k in *keep {
+                assert!(out.contains(k), "{name}: lost {k:?}\n{out}");
+            }
+            for d in *drop {
+                assert!(!out.contains(d), "{name}: kept {d:?}\n{out}");
+            }
+            assert!(out.len() < raw.len(), "{name}: didn't shrink");
+        }
+    }
+
+    #[test]
+    fn match_any_covers_every_invocation_form() {
+        let filters: Vec<FilterFile> = EMBEDDED
+            .iter()
+            .map(|(_, raw)| toml::from_str(raw).unwrap())
+            .collect();
+        let name = |cmd: &str, a: &[&str]| {
+            find_match(&filters, cmd, &args(a), Stream::Stdout).map(|f| {
+                f.match_any
+                    .first()
+                    .map(|m| m[1].clone())
+                    .unwrap_or_default()
+            })
+        };
+        for (cmd, a) in [
+            ("pnpm", &["build"][..]),
+            ("pnpm", &["run", "build"]),
+            ("npm", &["run", "build"]),
+            ("yarn", &["build"]),
+        ] {
+            assert_eq!(name(cmd, a).as_deref(), Some("build"), "{cmd} {a:?}");
+        }
+        assert_eq!(
+            name("pnpm", &["lint:styles"]).as_deref(),
+            Some("lint|lint:fix|lint:styles")
+        );
+        // Long-running forms must never match (they'd be buffered).
+        for a in [&["dev"][..], &["run", "dev"], &["start"], &["test"]] {
+            assert!(name("pnpm", a).is_none(), "{a:?}");
+        }
+        assert!(
+            find_match(
+                &filters,
+                "docker",
+                &args(&["compose", "up"]),
+                Stream::Stdout
+            )
+            .is_none()
+        );
     }
 
     #[test]

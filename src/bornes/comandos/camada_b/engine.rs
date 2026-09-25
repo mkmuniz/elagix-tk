@@ -90,6 +90,31 @@ fn apply_inner(steps: &[Step], raw: &str, exit_code: i32, allow_on_empty: bool) 
                     working = format!("{}\n[+{} lines omitted]", kept.join("\n"), total - limit);
                 }
             }
+            Step::CompactPath => working = compact_path(&working),
+            Step::CollapseLinesMatching { patterns, label } => {
+                let res: Vec<Regex> = patterns.iter().filter_map(|p| Regex::new(p).ok()).collect();
+                let mut out: Vec<&str> = Vec::new();
+                let mut marker_at = None;
+                let mut count = 0;
+                for line in working.lines() {
+                    if res.iter().any(|re| re.is_match(line)) {
+                        count += 1;
+                        if marker_at.is_none() {
+                            marker_at = Some(out.len());
+                            out.push(""); // placeholder, filled below
+                        }
+                    } else {
+                        out.push(line);
+                    }
+                }
+                if let Some(at) = marker_at {
+                    let marker = format!("[+{count} lines omitted: {label}]");
+                    let mut lines: Vec<String> = out.iter().map(|l| l.to_string()).collect();
+                    lines[at] = marker;
+                    working = lines.join("\n");
+                }
+            }
+            Step::SqueezeSpaces => working = squeeze_spaces(&working),
             Step::OnEmpty { message } => {
                 if allow_on_empty && exit_code == 0 && working.trim().is_empty() {
                     working = message.clone();
@@ -99,6 +124,31 @@ fn apply_inner(steps: &[Step], raw: &str, exit_code: i32, allow_on_empty: bool) 
     }
 
     working
+}
+
+fn squeeze_spaces(s: &str) -> String {
+    let re = Regex::new(r"(\S) {2,}").expect("static regex is valid");
+    s.lines()
+        .map(|l| re.replace_all(l, "$1 ").into_owned())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn compact_path(s: &str) -> String {
+    let mut out = s.to_string();
+    if let Ok(cwd) = std::env::current_dir() {
+        let cwd = cwd.to_string_lossy();
+        if cwd.len() > 1 {
+            out = out.replace(&format!("{cwd}/"), "");
+            out = out.replace(cwd.as_ref(), ".");
+        }
+    }
+    if let Ok(home) = std::env::var("HOME")
+        && home.len() > 1
+    {
+        out = out.replace(&home, "~");
+    }
+    out
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -184,5 +234,42 @@ mod tests {
             },
         ];
         assert_eq!(apply_stderr(&steps, "npm warn deprecated x\n", 0), "");
+    }
+
+    #[test]
+    fn collapse_replaces_matches_with_one_marker() {
+        let steps = vec![Step::CollapseLinesMatching {
+            patterns: vec!["^[┌├└] ".into()],
+            label: "route table".into(),
+        }];
+        let input = "Route (app)\n┌ ○ /\n├ ○ /about\n└ ○ /terms\nDone";
+        assert_eq!(
+            apply(&steps, input, 0),
+            "Route (app)\n[+3 lines omitted: route table]\nDone"
+        );
+        assert_eq!(apply(&steps, "nothing here", 0), "nothing here");
+    }
+
+    #[test]
+    fn squeeze_spaces_keeps_indentation() {
+        let steps = vec![Step::SqueezeSpaces];
+        assert_eq!(
+            apply(&steps, "  1:23  error    Unexpected any     rule", 0),
+            "  1:23 error Unexpected any rule"
+        );
+    }
+
+    #[test]
+    fn compact_path_makes_cwd_relative() {
+        let cwd = std::env::current_dir().unwrap();
+        let input = format!(
+            "{}/app/util1.ts\n> x build {}",
+            cwd.display(),
+            cwd.display()
+        );
+        assert_eq!(
+            apply(&[Step::CompactPath], &input, 0),
+            "app/util1.ts\n> x build ."
+        );
     }
 }

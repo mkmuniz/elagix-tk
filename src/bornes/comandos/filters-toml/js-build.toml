@@ -1,0 +1,51 @@
+# Layer B — JS/TS project builds run through the package manager: `pnpm
+# build`, `npm run build`, `yarn build`... Validated against real output
+# (2026-09-24) from `next build` (Next.js 16) and `vite build` (Vite 8).
+# Dropped: the package-manager header, progress lines ("Generating static
+# pages (4/17)"), Next's route table (one line per page — grows with the
+# app, collapsed into a recoverable marker) and Vite's per-asset size rows.
+# Kept: the framework banner, "Compiled successfully"/"built in", and every
+# error (type errors, "Failed to type check.", ELIFECYCLE).
+match_any = [
+    ["pnpm", "build"],
+    ["pnpm", "run", "build"],
+    ["npm", "run", "build"],
+    ["yarn", "build"],
+    ["yarn", "run", "build"],
+]
+
+[[pipeline]]
+action = "strip_ansi"
+
+[[pipeline]]
+action = "compact_path"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^> \\S+@\\S+ \\S+",
+    "^\\s*$",
+    "^\\s+Creating an optimized production build",
+    "^\\s+Running TypeScript \\.\\.\\.$",
+    "^\\s+Finished TypeScript",
+    "^\\s+Collecting page data",
+    "^\\s+Generating static pages .*\\(\\d+/\\d+\\)\\s*(\\.\\.\\.)?\\s*$",
+    "^\\s+Finalizing page optimization",
+    "^\\s+Collecting build traces",
+    "^[○ƒ●◐]\\s+\\((Static|Dynamic|SSG|Partial Prerender)\\)",
+    "^(transforming|rendering chunks|computing gzip size)\\.\\.\\.$",
+]
+
+[[pipeline]]
+action = "collapse_lines_matching"
+patterns = ["^Route \\((app|pages)\\)", "^[┌├└│] ", "^\\+ First Load JS", "^\\s+└ chunks/", "^\\s+(├|└) .*\\.(js|css)\\s"]
+label = "route table"
+
+[[pipeline]]
+action = "collapse_lines_matching"
+patterns = ["^\\S*dist/\\S+\\s+[\\d.,]+ [kM]B"]
+label = "build asset sizes"
+
+[[pipeline]]
+action = "max_lines"
+limit = 80

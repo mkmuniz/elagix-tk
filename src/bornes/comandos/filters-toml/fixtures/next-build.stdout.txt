@@ -1,0 +1,41 @@
+
+> nx@0.1.0 build /home/dev/nx
+> next build
+
+▲ Next.js 16.3.6 (Turbopack)
+✓ Running next.config.ts took 378ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 19.7s
+  Running TypeScript ...
+  Finished TypeScript in 15.6s ...
+  Collecting page data using 9 workers ...
+  Generating static pages using 9 workers (0/17) ...
+  Generating static pages using 9 workers (4/17) 
+  Generating static pages using 9 workers (8/17) 
+  Generating static pages using 9 workers (12/17) 
+✓ Generating static pages using 9 workers (17/17) in 4.0s
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /about
+├ ƒ /api/health
+├ ○ /blog
+├ ƒ /blog/[slug]
+├ ○ /careers
+├ ○ /contact
+├ ○ /docs
+├ ○ /faq
+├ ○ /legal
+├ ○ /pricing
+├ ○ /privacy
+├ ○ /support
+├ ○ /team
+└ ○ /terms
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

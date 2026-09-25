@@ -1,0 +1,45 @@
+
+> nx@0.1.0 lint /home/dev/nx
+> eslint
+
+
+/home/dev/nx/app/util1.ts
+  1:23  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+  2:9   warning  'unused' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  3:3   error    Unexpected var, use let or const instead     no-var
+  3:10  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+
+/home/dev/nx/app/util2.ts
+  1:23  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+  2:9   warning  'unused' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  3:3   error    Unexpected var, use let or const instead     no-var
+  3:10  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+
+/home/dev/nx/app/util3.ts
+  1:23  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+  2:9   warning  'unused' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  3:3   error    Unexpected var, use let or const instead     no-var
+  3:10  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+
+/home/dev/nx/app/util4.ts
+  1:23  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+  2:9   warning  'unused' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  3:3   error    Unexpected var, use let or const instead     no-var
+  3:10  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+
+/home/dev/nx/app/util5.ts
+  1:23  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+  2:9   warning  'unused' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  3:3   error    Unexpected var, use let or const instead     no-var
+  3:10  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+
+/home/dev/nx/app/util6.ts
+  1:23  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+  2:9   warning  'unused' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  3:3   error    Unexpected var, use let or const instead     no-var
+  3:10  error    Unexpected any. Specify a different type     @typescript-eslint/no-explicit-any
+
+✖ 24 problems (18 errors, 6 warnings)
+  6 errors and 0 warnings potentially fixable with the `--fix` option.
+
+ ELIFECYCLE  Command failed with exit code 1.

@@ -43,6 +43,9 @@ Every percentage below is a real measurement, taken by running the binary agains
 | `docker images` (21 images) | 1,782 B | 1,234 B | 30.8% |
 | `docker build` (3-step Dockerfile) | 1,719 B | 175 B | 89.8% |
 | `npm install` (deprecated deps) | 675 B | 204 B | 69.8% |
+| `pnpm build` (Next.js 16, 17 routes) | 1,071 B | 253 B | 76.4% |
+| `git pull` (26 files) | 2,650 B | 208 B | 92.2% |
+| `pnpm lint` (ESLint, 24 problems — all kept) | 3,317 B | 2,228 B | 32.8% |
 | MCP `tools/list` (2 tools) | 1,047 B | 566 B | 45.9% |
 | MCP `tools/list` (real filesystem server, 14 tools) | 13,018 B | 2,940 B | 77.4% |
 | MCP `tools/call` (JSON result) | 16,658 B | 4,530 B | 72.8% |

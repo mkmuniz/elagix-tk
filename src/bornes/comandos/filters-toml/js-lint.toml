@@ -1,0 +1,31 @@
+# Layer B — linters run through the package manager (`pnpm lint`, `npm run
+# lint`, `pnpm lint:styles`...). Validated against real ESLint output
+# (2026-09-24): every file header repeats the full absolute path, and each
+# problem line is padded into columns. Paths become relative, padding is
+# squeezed, blank separators and the package-manager header go away — every
+# problem (position, severity, message, rule) and the totals stay. Very long
+# reports are capped, with the full text recoverable via `elagix show`.
+match_any = [
+    ["pnpm", "lint|lint:fix|lint:styles"],
+    ["pnpm", "run", "lint|lint:fix|lint:styles"],
+    ["npm", "run", "lint|lint:fix|lint:styles"],
+    ["yarn", "lint|lint:fix|lint:styles"],
+    ["yarn", "run", "lint|lint:fix|lint:styles"],
+]
+
+[[pipeline]]
+action = "strip_ansi"
+
+[[pipeline]]
+action = "compact_path"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^> \\S+@\\S+ \\S+", "^\\s*$"]
+
+[[pipeline]]
+action = "squeeze_spaces"
+
+[[pipeline]]
+action = "max_lines"
+limit = 120

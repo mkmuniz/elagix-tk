@@ -1,0 +1,24 @@
+# Layer B — `docker compose build|pull`. Validated against real output
+# (2026-09-24): same BuildKit bookkeeping as `docker build`, but compose
+# prints it on STDOUT (plus bake-definition and provenance steps). Never
+# `up`/`logs`: those can run forever, and filtering means buffering.
+match_any = [
+    ["docker", "compose", "build|pull"],
+    ["docker-compose", "build|pull"],
+]
+stream = "both"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^#0 building with ",
+    "^#\\d+ \\[internal\\] ",
+    "^#\\d+ (transferring|resolve|exporting|naming|unpacking|writing image|extracting|sha256:|reading from stdin|resolving provenance)",
+    "^#\\d+ DONE [\\d.]+s$",
+    "^[0-9a-f]{12} (Pulling fs layer|Waiting|Downloading|Download complete|Verifying Checksum|Extracting|Pull complete|Already exists)",
+    "^\\s*$",
+]
+
+[[pipeline]]
+action = "max_lines"
+limit = 60

@@ -1,0 +1,12 @@
+
+> nx@0.1.0 build /home/dev/nx
+> next build
+
+▲ Next.js 16.3.6 (Turbopack)
+✓ Running next.config.ts took 247ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 16.7s
+  Running TypeScript ...
+app/broken/page.tsx(1,7): error TS2322: Type 'string' is not assignable to type 'number'.
+ ELIFECYCLE  Command failed with exit code 1.

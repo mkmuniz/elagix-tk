@@ -13,7 +13,7 @@ action = "strip_lines_matching"
 patterns = [
     "^#0 building with ",
     "^#\\d+ \\[internal\\] ",
-    "^#\\d+ (transferring|resolve|exporting|naming|unpacking|writing image|extracting|sha256:)",
+    "^#\\d+ (transferring|resolve|exporting|naming|unpacking|writing image|extracting|sha256:|reading from stdin|resolving provenance)",
     "^#\\d+ DONE [\\d.]+s$",
     "^\\s*$",
 ]
