@@ -2,7 +2,7 @@
 
 All notable changes to this project are recorded here. Format loosely inspired by [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.3.0] — 2026-09-25
 
 ### Changed
 - **Renamed from Elagix to Schliffe** (German: *the cuts* — the facets of a cut gem). Command `schliffe`, folder `~/.schliffe`, environment variables `SCHLIFFE_*`. `install.sh` migrates an existing Elagix install: moves the stats history, store and custom filters, removes the old shims and PATH lines (with backups) and re-registers the Claude Code hook. The binary still answers to `elagix` for sessions started before the switch.
