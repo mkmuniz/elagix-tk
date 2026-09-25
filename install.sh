@@ -63,15 +63,22 @@ mkdir -p "$SHIMS_DIR"
 # shims folder removed from PATH, so a re-run doesn't find its own shims): a
 # shim for a missing tool would make `command -v terraform` succeed and
 # mislead scripts that probe for it. Installed a new tool later? Re-run this.
-REAL_PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$SHIMS_DIR" | paste -sd: -)"
+#
+# The lookup uses the union of this process's PATH and the PATH of the
+# user's full login+interactive shell (found 2026-09-25): run from a trimmed
+# environment — e.g. an agent's shell that never sourced ~/.zshrc, where nvm
+# and dotnet live — `npm`/`dotnet` looked "not installed". And an existing
+# shim is never removed: a tool that can't be seen from here isn't proof
+# it's gone.
+USER_SHELL_PATH="$("${SHELL:-/bin/bash}" -lic 'printf %s "$PATH"' </dev/null 2>/dev/null | tail -n 1 || true)"
+REAL_PATH="$(printf '%s:%s' "$PATH" "$USER_SHELL_PATH" | tr ':' '\n' | grep -v '^$' | grep -vxF "$SHIMS_DIR" | awk '!seen[$0]++' | paste -sd: -)"
 SHIMMED=()
 SKIPPED=()
 for cmd in "${DEFAULT_COMMANDS[@]}"; do
-    if PATH="$REAL_PATH" command -v "$cmd" >/dev/null 2>&1; then
+    if PATH="$REAL_PATH" command -v "$cmd" >/dev/null 2>&1 || [ -L "$SHIMS_DIR/$cmd" ]; then
         ln -sf "$BIN_PATH" "$SHIMS_DIR/$cmd"
         SHIMMED+=("$cmd")
     else
-        rm -f "$SHIMS_DIR/$cmd"
         SKIPPED+=("$cmd")
     fi
 done
@@ -142,6 +149,19 @@ elif [ -f "$INTERACTIVE_FILE" ]; then
 else
     { echo "# Elagix — \$PATH shim (specs.md §5.1)"; echo "$PATH_LINE"; } > "$INTERACTIVE_FILE"
     echo "elagix: created $INTERACTIVE_FILE with elagix's PATH"
+fi
+
+# Claude Code hook (bornes/hook): covers what the PATH shim can't reach —
+# remote MCP servers (HTTP/OAuth, e.g. Figma) and images. Registered only if
+# Claude Code is present (~/.claude exists); idempotent, keeps a backup of
+# settings.json. Skip with ELAGIX_NO_HOOK=1; undo with `elagix hook uninstall`.
+if [ -n "${ELAGIX_NO_HOOK:-}" ]; then
+    echo "elagix: skipping the Claude Code hook (ELAGIX_NO_HOOK is set)"
+elif [ -d "$HOME/.claude" ]; then
+    "$BIN_PATH" hook install
+else
+    echo "elagix: Claude Code not found (~/.claude missing) — skipped its hook."
+    echo "        Install it later with: elagix hook install"
 fi
 
 echo ""

@@ -67,5 +67,8 @@ if ($pathEntries -contains $ShimsDir) {
 }
 
 Write-Host ""
+Write-Host "elagix: note - the Claude Code hook (remote MCP servers like Figma, image"
+Write-Host "        resizing) is NOT installed: hook output replacement doesn't work on"
+Write-Host "        native Windows. Use Elagix from WSL to get it."
 Write-Host "elagix: installed. Open a NEW terminal to pick up the updated PATH."
 Write-Host "elagix: test with 'git status | more' or any pipe -- if it filters, it worked."

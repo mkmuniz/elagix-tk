@@ -80,13 +80,14 @@ Opt-in/out per tool: `ELAGIX_FORCE=1` turns filtering on for an agent that doesn
 
 ## Remote MCP servers and images (Claude Code hook)
 
-Some things never touch a shell or a local MCP pipe: **remote MCP servers** (HTTP + OAuth, e.g. Figma, `https://mcp.figma.com/mcp`) and **images** Claude opens with its Read tool or receives from an MCP tool (screenshots). For those, Elagix plugs into Claude Code as a `PostToolUse` hook. Run once:
+Some things never touch a shell or a local MCP pipe: **remote MCP servers** (HTTP + OAuth, e.g. Figma, `https://mcp.figma.com/mcp`) and **images** Claude opens with its Read tool or receives from an MCP tool (screenshots). For those, Elagix plugs into Claude Code as a `PostToolUse` hook — **`install.sh` registers it automatically** when Claude Code is installed (`ELAGIX_NO_HOOK=1 bash install.sh` to skip). To manage it by hand:
 
 ```bash
-elagix hook install     # adds the hook to ~/.claude/settings.json (backup kept); `elagix hook uninstall` removes it
+elagix hook install     # adds the hook to ~/.claude/settings.json (backup kept)
+elagix hook uninstall   # removes it
 ```
 
-then open a new Claude Code session. After each `Read` or `mcp__*` call, Claude Code hands the result to `elagix hook post-tool-use`, which:
+Open a new Claude Code session after installing. After each `Read` or `mcp__*` call, Claude Code hands the result to `elagix hook post-tool-use`, which:
 
 - compresses JSON text results of MCP tools (same rules as the stdio proxy: nulls dropped, long strings/arrays trimmed with an `elagix show` hint; file-reading tools never touched);
 - shrinks images whose long edge exceeds 1280px (`ELAGIX_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area and the API already caps them around 1568px, so a full Retina screenshot goes from ~1.5k to ~1k tokens (about -33%) — UI text stays readable.
