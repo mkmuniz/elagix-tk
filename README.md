@@ -90,7 +90,7 @@ elagix hook uninstall   # removes it
 Open a new Claude Code session after installing. After each `Read` or `mcp__*` call, Claude Code hands the result to `elagix hook post-tool-use`, which:
 
 - compresses JSON text results of MCP tools (same rules as the stdio proxy: nulls dropped, long strings/arrays trimmed with an `elagix show` hint; file-reading tools never touched);
-- shrinks images whose long edge exceeds 1280px (`ELAGIX_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area and the API already caps them around 1568px, so a full Retina screenshot goes from ~1.5k to ~1k tokens (about -33%) — UI text stays readable.
+- shrinks images whose long edge exceeds 1280px (`ELAGIX_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area, and the API already downscales anything above ~1568px on the long edge or ~1.15 megapixels — so at the default 1280px the saving is modest (measured live: 2400×1500 image, −11%; a Retina screenshot ≈ −7%). Lower caps save much more (1024px ≈ −40%) at the cost of small UI text becoming harder to read.
 
 Anything it doesn't recognize is left untouched (for built-in tools, Claude Code also discards a replacement that doesn't match the tool's output schema).
 

@@ -58,4 +58,4 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 - **Read's image result shape is undocumented.** The hook finds base64 image data generically; if Claude Code changes the shape, the replacement is discarded by Claude Code's schema check and the original image is used (safe, just no savings). `ELAGIX_HOOK_DUMP=<dir>` in the hook command's environment saves each hook input for diagnosis.
 - **Only PNG and JPEG are resized** (WebP/GIF left as-is, so the declared media type never changes).
 - **Adds ~0.5–1s after reading a very large image** (decode + resize + encode); text reads and non-image tools cost a few milliseconds.
-- **Image savings are modest by design** (~-33% on a Retina screenshot): the API already caps images around 1568px, and going below 1280px would make UI text hard to read.
+- **Image savings are small at the default 1280px** (measured live 2026-09-25: −11% on a 2400×1500 image; ≈ −7% on a Retina screenshot), because the API already downscales images to ~1.15 megapixels. 1024px gives ≈ −40% but small UI text gets harder to read — tune with `ELAGIX_IMAGE_MAX_EDGE`.
