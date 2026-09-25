@@ -1,0 +1,72 @@
+name: Release
+
+# Builds prebuilt binaries and attaches them to a GitHub Release whenever a
+# version tag is pushed (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
+# Nothing runs on regular pushes.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, exe: elagix }
+          - { os: macos-latest, target: aarch64-apple-darwin, exe: elagix }
+          - { os: macos-latest, target: x86_64-apple-darwin, exe: elagix }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: elagix.exe }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: test
+        # Native Unix runners only: the Intel macOS build is cross-compiled
+        # on an ARM runner, and the suite has never been run on Windows (the
+        # e2e tests are Unix-only) — not something to discover mid-release.
+        if: matrix.os == 'ubuntu-latest' || matrix.target == 'aarch64-apple-darwin'
+        run: cargo test --release
+      - name: build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          name="elagix-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" "$name/"
+          cp README.md LICENSE install.sh install.ps1 "$name/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "$name.zip" "$name" > /dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: elagix-${{ matrix.target }}
+          path: elagix-*.*z*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: checksums
+        run: sha256sum elagix-* > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            elagix-*
+            SHA256SUMS
+          generate_release_notes: true
