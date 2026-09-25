@@ -14,7 +14,7 @@ $ShimsDir = if ($env:ELAGIX_SHIMS_DIR) { $env:ELAGIX_SHIMS_DIR } else { Join-Pat
 
 # Same list as install.sh (Layer A: git/pytest/cargo; Layer B:
 # docker/npm/terraform) — keep both in sync if the list changes.
-$DefaultCommands = @("git", "cargo", "pytest", "docker", "npm", "terraform")
+$DefaultCommands = @("git", "cargo", "pytest", "docker", "npm", "pnpm", "yarn", "pip", "pip3", "dotnet", "go", "terraform")
 
 function Find-ElagixExe {
     $candidates = @(

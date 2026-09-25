@@ -1,0 +1,14 @@
+# Layer B — `go test` (stdout). Not validated live (Go isn't installed on the
+# dev machine, 2026-09-24) — unit-tested only. With `-v`, go prints
+# "=== RUN" / "--- PASS" per test; failures, "FAIL", "ok" summaries and any
+# test output stay.
+match_command = "go"
+match_args_prefix = ["test"]
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^=== (RUN|PAUSE|CONT|NAME) ", "^\\s*--- PASS: "]
+
+[[pipeline]]
+action = "max_lines"
+limit = 80

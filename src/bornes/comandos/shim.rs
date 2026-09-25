@@ -43,11 +43,13 @@ pub fn resolve_real_binary(name: &str) -> Option<PathBuf> {
         if is_executable(&candidate) {
             return Some(candidate);
         }
+        // npm/pnpm/yarn are `.cmd` wrappers on Windows, not `.exe` — looking
+        // for `.exe` only meant their shims never found the real tool.
         #[cfg(windows)]
-        {
-            let with_exe = dir.join(format!("{name}.exe"));
-            if with_exe.is_file() {
-                return Some(with_exe);
+        for ext in ["exe", "cmd", "bat"] {
+            let with_ext = dir.join(format!("{name}.{ext}"));
+            if with_ext.is_file() {
+                return Some(with_ext);
             }
         }
     }
@@ -109,21 +111,33 @@ fn agent_active_from(is_set: impl Fn(&str) -> bool) -> bool {
 
 pub struct CapturedRun {
     pub stdout: Vec<u8>,
+    /// Only `Some` when `capture_stderr` was requested.
+    pub stderr: Option<Vec<u8>>,
     pub exit_code: i32,
 }
 
-/// Runs the real binary capturing stdout (stderr passes straight through,
-/// same as the original command would) — used on the non-interactive
-/// (pipe) path, where the output will be filtered before it reaches the agent.
-pub fn run_captured(real_bin: &Path, args: &[String]) -> std::io::Result<CapturedRun> {
+/// Runs the real binary capturing stdout — used on the non-interactive
+/// (agent) path, where the output will be filtered before it reaches the
+/// agent. stderr passes straight through (same as the original command)
+/// unless `capture_stderr` is set, i.e. a Layer B filter targets stderr.
+pub fn run_captured(
+    real_bin: &Path,
+    args: &[String],
+    capture_stderr: bool,
+) -> std::io::Result<CapturedRun> {
     let output = Command::new(real_bin)
         .args(args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(if capture_stderr {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        })
         .output()?;
     Ok(CapturedRun {
         stdout: output.stdout,
+        stderr: capture_stderr.then_some(output.stderr),
         exit_code: output.status.code().unwrap_or(1),
     })
 }

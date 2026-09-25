@@ -1,0 +1,23 @@
+# Layer B — `dotnet build|test|run|restore|publish`. Validated against real
+# output (2026-09-24): restore chatter and the elapsed time are noise; the
+# "Build succeeded." / warning and error counts and the diagnostics
+# themselves are what the agent needs.
+match_command = "dotnet"
+match_args_prefix = ["build|test|run|restore|publish"]
+
+[[pipeline]]
+action = "strip_ansi"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^\\s*Determining projects to restore\\.\\.\\.$",
+    "^\\s*All projects are up-to-date for restore\\.$",
+    "^\\s*Restored .* \\(in [\\d.]+ m?s\\)\\.$",
+    "^Time Elapsed ",
+    "^\\s*$",
+]
+
+[[pipeline]]
+action = "max_lines"
+limit = 80

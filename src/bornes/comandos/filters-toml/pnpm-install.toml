@@ -1,0 +1,23 @@
+# Layer B — `pnpm install|i|add`. Validated against real output (2026-09-24):
+# in a non-TTY pnpm prints one "Progress: resolved ..." line per tick, a
+# "+++" bar, and an "Update available!" box — none of it useful to an agent.
+# Keeps warnings (pnpm already aggregates deprecated subdependencies into one
+# line), "Packages: +N", the dependency list, and "Done in ...".
+match_command = "pnpm"
+match_args_prefix = ["install|i|add"]
+
+[[pipeline]]
+action = "strip_ansi"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^Progress: resolved ",
+    "^\\++$",
+    "^\\s*[╭│╰]",
+    "^\\s*$",
+]
+
+[[pipeline]]
+action = "max_lines"
+limit = 30

@@ -14,8 +14,8 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 
 ## Command coverage (Layer B / `bornes/comandos`)
 
-- **Only 4 example TOML filters exist** (`docker-images`, `git-branch`, `terraform-plan`, `npm-install`). RTK's audit (specs §10) mapped ~60 long-tail commands that never got a rule: `go-build`, `tsc`, `rg`, `make`, `jq`, `poetry`, `uv`, `mise`, `jj`, `nx`, `turbo`, `pre-commit`, `grep`, `fd`, `tree`, `wc`, `df`, `stat`, `shellcheck`, `yamllint`, `oxlint`, `ruff-format`, `cargo-clippy`, `ls-la`, `golangci-lint`, among others.
-- **Layer B's pipeline order is fixed**, not configurable per filter (always `strip_ansi → replace → match_output → keep/strip_lines → dedup → truncate_lines → max_lines → on_empty`, see `bornes/comandos/camada_b/engine.rs`). Never needed to change for the 4 existing filters, but may not fit every future case.
+- **Layer B covers 15 filters, still not the whole long tail.** Since 2026-09-24: `npm`/`pnpm`/`yarn` install, `pip`/`pip3` install, `docker` images/pull/build, `dotnet` build/test/run, cargo's stderr progress, `go test` + go's download chatter, `git branch`, `terraform plan`. The `go` and `terraform` filters are unit-tested only (no Go/Terraform on the dev machine). Still no rule for: `tsc`, `rg`, `make`, `jq`, `poetry`, `uv`, `nx`, `turbo`, `pre-commit`, `eslint`, `jest`/`vitest`, `npm run`, among others. `yarn` with no arguments (= install) isn't matched.
+- **Filters that target stderr reorder the output**: when a filter asks for stderr (e.g. `docker build`, `npm install`), stderr is captured and printed before stdout instead of interleaved as the tool wrote it.
 - **Catalog actions (specs §5.3) not implemented yet**: `group_by`, `json_extract`/`json_schema`/`ndjson_stream`, `regex_extract`, `state_machine`, `aggregate`, `format_template`, `compact_path`. None of the 4 v1 filters have needed them yet.
 - **No `read`/`smart` parser** (file reading) in Layer A — blocks the "summarize a long docstring/comment" use case that `bornes/prosa` could cover (specs §13, already resolved as "out of v1" for lack of somewhere to plug it in).
 

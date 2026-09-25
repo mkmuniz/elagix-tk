@@ -1,0 +1,8 @@
+# Layer B — `yarn` / `yarn install|add` (yarn v1), stdout side. The
+# "[1/4] Resolving packages..." step lines are progress, not results.
+match_command = "yarn"
+match_args_prefix = ["install|add"]
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^\\[\\d+/\\d+\\] ", "^info No lockfile found\\.$"]

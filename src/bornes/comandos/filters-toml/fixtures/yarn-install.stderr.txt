@@ -1,0 +1,5 @@
+warning package.json: No license field
+warning x@1.0.0: No license field
+warning request@2.88.2: request has been deprecated, see https://github.com/request/request/issues/3142
+warning request > uuid@3.4.0: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+warning request > har-validator@5.1.5: this library is no longer supported

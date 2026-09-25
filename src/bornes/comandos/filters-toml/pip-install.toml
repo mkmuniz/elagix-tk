@@ -1,0 +1,29 @@
+# Layer B — `pip install` / `pip3 install`. Validated against real output
+# (2026-09-24): one "Collecting" + one "Downloading"/"Using cached" line per
+# package, plus progress bars — what matters is "Successfully installed ..."
+# and any error. stderr carries the "new pip release" notice.
+match_command = "pip"
+match_args_prefix = ["install"]
+stream = "both"
+
+[[pipeline]]
+action = "strip_ansi"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^Collecting ",
+    "^\\s+Downloading ",
+    "^\\s+Using cached ",
+    "^\\s+Obtaining dependency information",
+    "^\\s*[━╸╺ ]+\\s[\\d.]+/[\\d.]+ [kMG]B",
+    "^Requirement already satisfied: ",
+    "^\\[notice\\] ",
+    "^WARNING: You are using pip version",
+    "^You should consider upgrading via",
+    "^\\s*$",
+]
+
+[[pipeline]]
+action = "on_empty"
+message = "pip install: completed with no output"

@@ -85,7 +85,31 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         _ => (rest_args.to_vec(), None),
     };
 
-    let captured = match shim::run_captured(&real_bin, &run_args) {
+    // Layer B (specs.md §5.2/§5.3): the declarative fallback for the long
+    // tail — on stdout only when no dedicated Layer A parser matched. stderr
+    // gets its own, independent lookup: many tools put their noise there
+    // (cargo's "Compiling ...", npm's warnings, docker build progress), and
+    // a stdout-only filter never saw it. stderr is only captured when a
+    // filter asks for it; otherwise it streams straight through as before.
+    let camada_b_filters = camada_b::load_all();
+    let camada_b_match = if subcommand.is_none() {
+        camada_b::find_match(
+            &camada_b_filters,
+            invoked_name,
+            rest_args,
+            camada_b::Stream::Stdout,
+        )
+    } else {
+        None
+    };
+    let stderr_match = camada_b::find_match(
+        &camada_b_filters,
+        invoked_name,
+        rest_args,
+        camada_b::Stream::Stderr,
+    );
+
+    let captured = match shim::run_captured(&real_bin, &run_args, stderr_match.is_some()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("elagix: failed to run {invoked_name}: {e}");
@@ -94,15 +118,6 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     };
 
     let raw = String::from_utf8_lossy(&captured.stdout);
-
-    // Layer B (specs.md §5.2/§5.3): only kicks in when no dedicated Layer A
-    // parser matched — it's the declarative fallback for the long tail.
-    let camada_b_filters = camada_b::load_all();
-    let camada_b_match = if subcommand.is_none() {
-        camada_b::find_match(&camada_b_filters, invoked_name, rest_args)
-    } else {
-        None
-    };
 
     // Business rule 2 (specs.md §4): no success shortcut if the process did
     // not finish successfully. This is each filter's own responsibility (never
@@ -121,26 +136,21 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         Some("cargo-test") => Some(filters::cargo_test::filter(&raw)),
         _ => camada_b_match.map(|f| camada_b::apply(&f.pipeline, &raw, captured.exit_code)),
     };
+    let mut output = finalize(filtered, &raw);
 
-    // Progressive disclosure (specs.md §8.1): when the filter signals that
-    // real content was dropped (not just reformatted), store the raw output
-    // and append a recoverable hint. Checked BEFORE rule 6 on purpose: if the
-    // hint doesn't fit the budget, rule 6 falls back to the full raw output —
-    // which already IS the complete information, so nothing is lost either way.
-    let filtered = filtered.map(|f| {
-        if f.contains("lines omitted") || f.contains("more changed lines") {
-            let hash = store::put(&raw);
-            format!("{f}\n(full output: elagix show {hash})")
-        } else {
-            f
+    // stderr is written first: tools that split their output usually emit
+    // progress/warnings (stderr) before the final summary (stdout).
+    if let (Some(f), Some(err)) = (stderr_match, &captured.stderr) {
+        let raw_err = String::from_utf8_lossy(err);
+        let filtered_err = camada_b::apply_stderr(&f.pipeline, &raw_err, captured.exit_code);
+        let out_err = finalize(Some(filtered_err), &raw_err);
+        if !out_err.trim().is_empty() {
+            eprint!("{out_err}");
+            if !out_err.ends_with('\n') {
+                eprintln!();
+            }
         }
-    });
-
-    // Business rule 6: filtered output can never be larger than the original.
-    let mut output = match filtered {
-        Some(f) if f.len() < raw.len() => f,
-        _ => raw.into_owned(),
-    };
+    }
 
     // Cache (§8.2): only writes after confirming success — never caches a
     // process that failed or was interrupted (business rule 2/3).
@@ -179,6 +189,30 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     }
 
     ExitCode::from(captured.exit_code as u8)
+}
+
+/// Progressive disclosure + business rule 6, shared by stdout and stderr.
+///
+/// Progressive disclosure (specs.md §8.1): when the filter signals that real
+/// content was dropped (not just reformatted), store the raw output and
+/// append a recoverable hint. Checked BEFORE rule 6 on purpose: if the hint
+/// doesn't fit the budget, rule 6 falls back to the full raw output — which
+/// already IS the complete information, so nothing is lost either way.
+///
+/// Business rule 6: filtered output can never be larger than the original.
+fn finalize(filtered: Option<String>, raw: &str) -> String {
+    let filtered = filtered.map(|f| {
+        if f.contains("lines omitted") || f.contains("more changed lines") {
+            let hash = store::put(raw);
+            format!("{f}\n(full output: elagix show {hash})")
+        } else {
+            f
+        }
+    });
+    match filtered {
+        Some(f) if f.len() < raw.len() => f,
+        _ => raw.to_string(),
+    }
 }
 
 fn looks_like_git_sha(s: &str) -> bool {

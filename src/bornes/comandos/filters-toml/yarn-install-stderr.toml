@@ -1,0 +1,9 @@
+# Layer B — `yarn install|add` (yarn v1), stderr side: one "deprecated"
+# warning per transitive package, plus "No license field" boilerplate.
+match_command = "yarn"
+match_args_prefix = ["install|add"]
+stream = "stderr"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^warning .*deprecated", "^warning .*No license field$"]

@@ -24,7 +24,7 @@ Elagix does this with a **`$PATH` shim** (the same decades-old technique used by
 
 | Module (`borne`) | What it compresses | Mechanism | Status |
 |---|---|---|---|
-| `bornes/comandos` | Output of `git`, `cargo`, `pytest`, `docker`, `npm`, `terraform` | `$PATH` shim — intercepts, filters, returns | ✅ Active, validated live |
+| `bornes/comandos` | Output of `git`, `cargo`, `pytest`, `docker`, `npm`, `pnpm`, `yarn`, `pip`, `dotnet`, `go`, `terraform` | `$PATH` shim — intercepts, filters, returns | ✅ Active, validated live |
 | `bornes/mcp` | MCP tool schema (lazy loading) + call result | JSON-RPC proxy over stdio | ⚠️ Works, but never wired up to a real MCP server (only a test fixture) |
 | `bornes/prosa` | Commit message body (`git log`/`git show`) | TF-IDF extractive summarization (no model, no embeddings) | ✅ Active, integrated into `comandos`'s Layer A |
 
@@ -41,6 +41,8 @@ Every percentage below is a real measurement, taken by running the binary agains
 | `git show` (6-file diff) | 32,001 B | 5,740 B | 82.1% (RTK: 71.4% on the same diff) |
 | `pytest` (collection error) | 3,245 B | 106 B | 96.7% (preserves the real error reason; RTK doesn't) |
 | `docker images` (21 images) | 1,782 B | 1,234 B | 30.8% |
+| `docker build` (3-step Dockerfile) | 1,719 B | 175 B | 89.8% |
+| `npm install` (deprecated deps) | 675 B | 204 B | 69.8% |
 | MCP `tools/list` (2 tools) | 1,047 B | 566 B | 45.9% |
 | MCP `tools/call` (JSON result) | 16,658 B | 4,530 B | 72.8% |
 | Repeated `git show <sha>` (cache) | — | — | ~23× faster, byte-identical |

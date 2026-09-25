@@ -31,7 +31,7 @@ SHIMS_DIR="${ELAGIX_SHIMS_DIR:-$HOME/.elagix/shims}"
 # §5.4; Layer B: docker/npm/terraform — filters-toml/*.toml). Adding a new
 # command here doesn't need new code if a Layer B rule for it already
 # exists; it just needs one more symlink.
-DEFAULT_COMMANDS=(git cargo pytest docker npm terraform)
+DEFAULT_COMMANDS=(git cargo pytest docker npm pnpm yarn pip pip3 dotnet go terraform)
 
 if ! command -v cargo >/dev/null 2>&1; then
     echo "elagix: needs cargo (Rust) installed — https://rustup.rs" >&2

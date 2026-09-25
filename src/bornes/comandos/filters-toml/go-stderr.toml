@@ -1,0 +1,10 @@
+# Layer B — `go build|test|run|mod|get` module download chatter on STDERR
+# ("go: downloading x v1.2.3"). Not validated live (no Go on the dev
+# machine, 2026-09-24) — unit-tested only.
+match_command = "go"
+match_args_prefix = ["build|test|run|mod|get|install|vet"]
+stream = "stderr"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = ["^go: downloading ", "^go: finding module "]

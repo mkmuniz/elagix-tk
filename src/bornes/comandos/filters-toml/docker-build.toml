@@ -1,0 +1,23 @@
+# Layer B — `docker build` (BuildKit plain output, which is what a non-TTY
+# gets). Validated against real output (2026-09-24): everything goes to
+# STDERR, and most of it is bookkeeping — internal steps, transfers, digest
+# resolution, "DONE 0.1s", exporting/naming/unpacking. Keeps each real
+# Dockerfile step ("#6 [2/3] RUN ..."), the output of RUN commands, CACHED
+# markers and every error.
+match_command = "docker"
+match_args_prefix = ["build|buildx"]
+stream = "stderr"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^#0 building with ",
+    "^#\\d+ \\[internal\\] ",
+    "^#\\d+ (transferring|resolve|exporting|naming|unpacking|writing image|extracting|sha256:)",
+    "^#\\d+ DONE [\\d.]+s$",
+    "^\\s*$",
+]
+
+[[pipeline]]
+action = "max_lines"
+limit = 60

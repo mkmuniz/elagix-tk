@@ -1,0 +1,13 @@
+# Layer B — `docker pull`. Validated against real output (2026-09-24): one
+# line per layer per state change ("Pulling fs layer", "Download complete",
+# "Pull complete"...) — keeps only the final status and the image name.
+match_command = "docker"
+match_args_prefix = ["pull"]
+stream = "both"
+
+[[pipeline]]
+action = "strip_lines_matching"
+patterns = [
+    "^[0-9a-f]{12}: (Pulling fs layer|Waiting|Downloading|Download complete|Verifying Checksum|Extracting|Pull complete|Already exists)",
+    "^Digest: sha256:",
+]

@@ -7,6 +7,18 @@ use regex::Regex;
 /// finding, section 11): neither can fire if the process didn't exit with
 /// 0, or a real error would turn into a generic success message.
 pub fn apply(steps: &[Step], raw: &str, exit_code: i32) -> String {
+    apply_inner(steps, raw, exit_code, true)
+}
+
+/// Same pipeline, applied to stderr: `on_empty` is skipped — an empty stderr
+/// after filtering just means "no warnings left", and a "completed with no
+/// output" message there would sit right next to the real stdout summary
+/// (found live with `npm install`, 2026-09-24).
+pub fn apply_stderr(steps: &[Step], raw: &str, exit_code: i32) -> String {
+    apply_inner(steps, raw, exit_code, false)
+}
+
+fn apply_inner(steps: &[Step], raw: &str, exit_code: i32, allow_on_empty: bool) -> String {
     let mut working = raw.to_string();
 
     for step in steps {
@@ -79,7 +91,7 @@ pub fn apply(steps: &[Step], raw: &str, exit_code: i32) -> String {
                 }
             }
             Step::OnEmpty { message } => {
-                if exit_code == 0 && working.trim().is_empty() {
+                if allow_on_empty && exit_code == 0 && working.trim().is_empty() {
                     working = message.clone();
                 }
             }
@@ -159,5 +171,18 @@ mod tests {
     fn dedup_collapses_consecutive_duplicates() {
         let steps = vec![Step::Dedup];
         assert_eq!(apply(&steps, "a\na\nb\nb\nb\na\n", 0), "a\nb\na");
+    }
+
+    #[test]
+    fn on_empty_never_fires_on_stderr() {
+        let steps = vec![
+            Step::StripLinesMatching {
+                patterns: vec!["^npm warn".into()],
+            },
+            Step::OnEmpty {
+                message: "npm install: completed with no output".into(),
+            },
+        ];
+        assert_eq!(apply_stderr(&steps, "npm warn deprecated x\n", 0), "");
     }
 }

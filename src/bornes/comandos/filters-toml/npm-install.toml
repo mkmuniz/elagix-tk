@@ -1,14 +1,28 @@
-# Layer B — specs.md §5.3. Target: `npm install`. RTK scored -64.3% on this
-# one (audit section 10.1, "got worse") — but due to PATH/plumbing
-# divergence (failure type #4, section 10.2), not a strategy failure. The
-# strategy itself here: drop cascading deprecation warnings (repetitive
-# noise per transitive package) and keep just the final summary.
+# Layer B — specs.md §5.3. Target: `npm install` / `npm i` / `npm ci` /
+# `npm add`. RTK scored -64.3% on this one (audit section 10.1, "got worse")
+# — but due to PATH/plumbing divergence (failure type #4, section 10.2), not
+# a strategy failure. The strategy itself: drop cascading deprecation
+# warnings (repetitive noise per transitive package) and the funding/audit
+# boilerplate, keep the summary ("added N packages", vulnerability count).
+#
+# `stream = "both"` (2026-09-24): npm writes its warnings to STDERR — while
+# the filter only saw stdout, the deprecation rule never actually fired.
 match_command = "npm"
-match_args_prefix = ["install"]
+match_args_prefix = ["install|i|ci|add"]
+stream = "both"
+
+[[pipeline]]
+action = "strip_ansi"
 
 [[pipeline]]
 action = "strip_lines_matching"
-patterns = ["^npm warn deprecated"]
+patterns = [
+    "^npm warn deprecated",
+    "^\\s*$",
+    "packages? (is|are) looking for funding$",
+    "^\\s*run `npm fund` for details$",
+    "^Run `npm audit` for details\\.$",
+]
 
 [[pipeline]]
 action = "max_lines"
