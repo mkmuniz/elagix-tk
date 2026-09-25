@@ -35,7 +35,7 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 
 ## `bornes/prosa`
 
-- **The sentence splitter is naive**: cuts on `.`/`!`/`?` followed by a space, with no special-casing for abbreviations (`Mr.`, `v1.2`). Acceptable for the real use case (commit body, short prose), bad for text dense with abbreviations.
+- **The sentence splitter is rule-based**: abbreviations come from a fixed EN+PT list, and a sentence that legitimately ends right before a lowercase word ("...done. then we...") won't be split. Fine for commit bodies and short prose.
 - **TF-IDF scores by statistical word rarity, not intuitive "importance"** — validated live that a summary sometimes picks a sentence a human wouldn't have picked first (`elagix compress`, MILESTONES.md M7). Expected algorithm behavior, not a bug, but worth keeping in mind when interpreting a summary.
 - **The user's `/compress` doesn't use `bornes/prosa`** — a deliberate decision (specs §7.2/§7.3, they're different tasks), not a gap to close.
 

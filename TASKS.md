@@ -37,7 +37,7 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 ## `bornes/prosa`
 
-- [ ] Improve the sentence splitter to handle common abbreviations (`Mr.`, `v1.2`, etc.).
+- [x] Sentence splitter handles abbreviations (EN+PT), initials, lowercase continuations, and treats bullets/blank lines as boundaries (2026-09-24).
 - [ ] Evaluate an importance heuristic beyond pure TF-IDF (or formally accept the current limitation — it picks by word rarity, not intuitive "importance").
 - [ ] Consider a real tokenizer instead of the `bytes/4` estimate.
 

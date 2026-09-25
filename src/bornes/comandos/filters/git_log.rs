@@ -38,14 +38,8 @@ pub fn filter(raw: &str) -> String {
         out.push('\n');
 
         if n == 0 && !commit.body.is_empty() {
-            let body = commit.body.join(" ");
-            let summary = crate::bornes::prosa::summarize(&body, 1);
-            let label = if summary.len() < body.len() {
-                "summary"
-            } else {
-                "body"
-            };
-            out.push_str(&format!("  {label}: {summary}\n"));
+            let (label, text) = crate::bornes::prosa::commit_body_line(&commit.body);
+            out.push_str(&format!("  {label}: {text}\n"));
         } else {
             omitted += commit.body.len();
         }

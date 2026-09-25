@@ -69,14 +69,8 @@ fn summarize_commit_header(header: &str) -> Option<String> {
     };
 
     if !body_lines.is_empty() {
-        let body = body_lines.join(" ");
-        let summary = crate::bornes::prosa::summarize(&body, 1);
-        let label = if summary.len() < body.len() {
-            "summary"
-        } else {
-            "body"
-        };
-        out.push_str(&format!("\n  {label}: {summary}"));
+        let (label, text) = crate::bornes::prosa::commit_body_line(&body_lines);
+        out.push_str(&format!("\n  {label}: {text}"));
     }
 
     Some(out)

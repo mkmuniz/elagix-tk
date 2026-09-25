@@ -40,7 +40,7 @@ pub fn summarize(text: &str, max_sentences: usize) -> String {
 
     let out = top
         .iter()
-        .map(|&i| sentences[i].trim())
+        .map(|&i| sentences[i].as_str())
         .collect::<Vec<_>>()
         .join(" ");
 
@@ -54,6 +54,23 @@ pub fn summarize(text: &str, max_sentences: usize) -> String {
     }
 }
 
+/// One-line summary of a commit body for `git log`/`git show` (M7):
+/// returns `("summary", <1 sentence>)` when it actually shrank, or
+/// `("body", <whole body>)` when it was a single sentence already — shown in
+/// full rather than labeled as if it had been compressed (business rule 5).
+/// Whitespace is flattened so the result always fits on one line.
+pub fn commit_body_line(body_lines: &[&str]) -> (&'static str, String) {
+    let body = body_lines.join("\n");
+    let flat = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let whole = flat(&body);
+    let summary = flat(&summarize(&body, 1));
+    if summary.len() < whole.len() {
+        ("summary", summary)
+    } else {
+        ("body", whole)
+    }
+}
+
 /// Suggested sentence cap for when the caller doesn't know ahead of time how
 /// much to cut (used by `elagix compress`, the standalone utility) — keeps
 /// roughly 1/3 of the original sentences, at least 1.
@@ -62,34 +79,108 @@ pub fn suggested_sentence_budget(text: &str) -> usize {
     (n / 3).max(1)
 }
 
-/// Simple sentence splitter: cuts on `.`/`!`/`?` followed by whitespace or
-/// end of text. Doesn't special-case abbreviations ("Mr.", "v1.2") — a known
-/// and acceptable limitation for the real use case (commit body, prompt,
-/// short prose — not dense legal/academic text full of abbreviations).
-fn split_sentences(text: &str) -> Vec<&str> {
+/// Common abbreviations (EN + PT) whose trailing `.` doesn't end a sentence.
+const ABBREVIATIONS: &[&str] = &[
+    "e.g", "i.e", "etc", "vs", "approx", "mr", "mrs", "ms", "dr", "prof", "inc", "ltd", "jr", "sr",
+    "sra", "st", "no", "fig", "cf", "al", "ex", "p.ex", "obs", "pág", "nº",
+];
+
+/// Sentence splitter (revised 2026-09-24). Two passes:
+///
+/// 1. Structure: a blank line or a line starting a list item (`- `, `* `,
+///    `• `, `1. `, `1) `) always starts a new segment — commit bodies are
+///    often bullet lists without final periods, which the old splitter
+///    glued into one giant "sentence". Other line breaks are soft wraps
+///    (commit bodies wrap at ~72 columns) and become spaces.
+/// 2. Punctuation: cuts on `.`/`!`/`?` followed by whitespace or end of
+///    text — except after a known abbreviation ("e.g.", "Mr.", "etc."), a
+///    single-letter initial ("J. Smith"), or when the next word starts in
+///    lowercase (the sentence clearly continues). Dots inside a token
+///    ("v1.2", "main.rs") never split, since no whitespace follows them.
+fn split_sentences(text: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let mut start = 0;
-    let bytes = text.as_bytes();
-    for (i, b) in bytes.iter().enumerate() {
-        if matches!(b, b'.' | b'!' | b'?') {
-            let boundary = bytes
-                .get(i + 1)
-                .map(|c| c.is_ascii_whitespace())
-                .unwrap_or(true);
-            if boundary {
-                let s = text[start..=i].trim();
-                if !s.is_empty() {
-                    out.push(s);
-                }
-                start = i + 1;
-            }
-        }
-    }
-    let rest = text[start..].trim();
-    if !rest.is_empty() {
-        out.push(rest);
+    for segment in structural_segments(text) {
+        split_on_punctuation(&segment, &mut out);
     }
     out
+}
+
+fn structural_segments(text: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || starts_list_item(trimmed) {
+            if !current.trim().is_empty() {
+                segments.push(std::mem::take(&mut current));
+            }
+            current.clear();
+        }
+        if !trimmed.is_empty() {
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(trimmed);
+        }
+    }
+    if !current.trim().is_empty() {
+        segments.push(current);
+    }
+    segments
+}
+
+fn starts_list_item(line: &str) -> bool {
+    if ["- ", "* ", "• "].iter().any(|p| line.starts_with(p)) {
+        return true;
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    digits > 0 && (line[digits..].starts_with(". ") || line[digits..].starts_with(") "))
+}
+
+fn split_on_punctuation(segment: &str, out: &mut Vec<String>) {
+    let chars: Vec<(usize, char)> = segment.char_indices().collect();
+    let mut start = 0;
+    for (n, &(i, c)) in chars.iter().enumerate() {
+        if !matches!(c, '.' | '!' | '?') {
+            continue;
+        }
+        let next = chars.get(n + 1).map(|&(_, c)| c);
+        if next.is_some_and(|c| !c.is_whitespace()) {
+            continue; // "v1.2", "main.rs", "?!"
+        }
+        if c == '.' && !ends_sentence(&segment[start..i], &segment[i + 1..]) {
+            continue;
+        }
+        let sentence = segment[start..=i].trim();
+        if !sentence.is_empty() {
+            out.push(sentence.to_string());
+        }
+        start = i + c.len_utf8();
+    }
+    let rest = segment[start..].trim();
+    if !rest.is_empty() {
+        out.push(rest.to_string());
+    }
+}
+
+/// Whether a `.` between `before` and `after` really ends a sentence.
+fn ends_sentence(before: &str, after: &str) -> bool {
+    let word = before
+        .rsplit(char::is_whitespace)
+        .next()
+        .unwrap_or("")
+        .trim_start_matches(['(', '"', '\'']);
+    let lower = word.to_lowercase();
+    if ABBREVIATIONS.contains(&lower.as_str()) {
+        return false;
+    }
+    if word.chars().count() == 1 && word.chars().all(char::is_alphabetic) {
+        return false; // initial: "J. Smith"
+    }
+    match after.trim_start().chars().next() {
+        Some(c) => !c.is_lowercase(),
+        None => true,
+    }
 }
 
 fn tokenize(sentence: &str) -> Vec<String> {
@@ -196,5 +287,40 @@ mod tests {
         let text = "One. Two. Three. Four. Five. Six. Seven. Eight.";
         let out = summarize(text, 2);
         assert!(out.len() <= text.len());
+    }
+
+    #[test]
+    fn abbreviations_and_initials_do_not_split() {
+        let s = split_sentences(
+            "Use a cache, e.g. the CAS store. Talked to J. Smith about v1.2 today. Done.",
+        );
+        assert_eq!(
+            s,
+            vec![
+                "Use a cache, e.g. the CAS store.",
+                "Talked to J. Smith about v1.2 today.",
+                "Done."
+            ]
+        );
+    }
+
+    #[test]
+    fn lowercase_continuation_does_not_split() {
+        let s = split_sentences("Edited main.rs etc. and more. Next one.");
+        assert_eq!(s, vec!["Edited main.rs etc. and more.", "Next one."]);
+    }
+
+    #[test]
+    fn bullets_and_blank_lines_are_boundaries() {
+        let body = "Intro paragraph wraps\nacross two lines.\n\n- first bullet without period\n- second bullet\n  continues here\n1. numbered item";
+        assert_eq!(
+            split_sentences(body),
+            vec![
+                "Intro paragraph wraps across two lines.",
+                "- first bullet without period",
+                "- second bullet continues here",
+                "1. numbered item"
+            ]
+        );
     }
 }
