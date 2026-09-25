@@ -22,7 +22,7 @@ A consolidation of everything marked "left for later" across M0-M8 (previously s
 ## Cache, progressive disclosure, and dedup (`core/store`)
 
 - **Cache (specs §8.2) only covers `git show <explicit sha>`.** Working-tree cache (`git status`/`git diff` with no fixed commit, would need to check `.git/index` mtime) and file-read cache were left out — neither has a Layer A parser to lean on yet.
-- **Dedup (specs §8.3) approximates "session" with a time window** (`ELAGIX_DEDUP_WINDOW_SECS`, default 1,800s), not a real session id — the shim has no access to any stable Claude Code identifier. May deduplicate across two sessions close in time, or fail to deduplicate within one very long session with big gaps.
+- **Dedup is session-scoped only when the agent exposes a session id.** Claude Code sets `CLAUDE_CODE_SESSION_ID` (used since 2026-09-24; `ELAGIX_SESSION_ID` works for other agents). Without one it falls back to the time window (`ELAGIX_DEDUP_WINDOW_SECS`, default 1,800s). Not yet verified: whether Claude Code subagents get their own session id — if they inherit the parent's, a subagent could get a "same as previous output" reference for something only the parent saw (still recoverable via `elagix show`).
 - **Cleanup policy (14 days, ~2% probabilistic sweep) never tested at real scale** — only with the small volume generated during this development session.
 
 ## `bornes/mcp`

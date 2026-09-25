@@ -22,7 +22,7 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 - [ ] Extend the cache to working-tree-dependent commands (`git status`/`git diff` with no fixed commit — needs to check `.git/index` mtime).
 - [ ] Evaluate a file-read cache (key: path + mtime + size, or a content hash).
-- [ ] Replace dedup's time window with a real session id, if/when a reliable way to get that from Claude Code exists.
+- [x] Scope dedup to a real session id — uses `CLAUDE_CODE_SESSION_ID` (or `ELAGIX_SESSION_ID`), time window kept as the upper bound (2026-09-24).
 - [ ] Validate the cleanup policy (14 days, ~2% sweep per write) at real usage volume, not just the volume generated during development.
 
 ## `bornes/mcp`

@@ -88,11 +88,18 @@ pub enum Dedup {
 }
 
 /// Checks whether `content` has already been shown within the sliding
-/// window (known limitation documented in specs §8.3: approximates "session"
-/// by time, not by a real id — the shim has no access to a stable session
-/// identifier). Always records the current appearance, even when `Fresh`.
-pub fn check_and_record_dedup(content: &str, window_secs: u64) -> Dedup {
-    let hash = hash_hex(content.as_bytes());
+/// window. Always records the current appearance, even when `Fresh`.
+///
+/// `session`: when the agent exposes a real session id (Claude Code sets
+/// `CLAUDE_CODE_SESSION_ID`, found 2026-09-24), it's folded into the hash, so
+/// an output seen in ANOTHER session never collapses into "same as previous
+/// output" — the agent in this session never saw it. Without an id, falls
+/// back to the time window alone (the original approximation, specs §8.3).
+pub fn check_and_record_dedup(content: &str, window_secs: u64, session: Option<&str>) -> Dedup {
+    let hash = match session {
+        Some(id) => hash_hex(format!("{id}\0{content}").as_bytes()),
+        None => hash_hex(content.as_bytes()),
+    };
     let log_path = store_root().join("seen.log");
     let now = now_secs();
 
@@ -228,11 +235,11 @@ mod tests {
     fn dedup_detects_repeat_within_window() {
         with_isolated_store(|| {
             assert!(matches!(
-                check_and_record_dedup("output X", 1800),
+                check_and_record_dedup("output X", 1800, None),
                 Dedup::Fresh
             ));
             assert!(matches!(
-                check_and_record_dedup("output X", 1800),
+                check_and_record_dedup("output X", 1800, None),
                 Dedup::SeenRecently
             ));
         });
@@ -241,11 +248,27 @@ mod tests {
     #[test]
     fn dedup_ignores_entries_outside_window() {
         with_isolated_store(|| {
-            check_and_record_dedup("output Y", 0); // zero window: expires immediately
+            check_and_record_dedup("output Y", 0, None); // zero window: expires immediately
             std::thread::sleep(std::time::Duration::from_secs(1));
             assert!(matches!(
-                check_and_record_dedup("output Y", 0),
+                check_and_record_dedup("output Y", 0, None),
                 Dedup::Fresh
+            ));
+        });
+    }
+
+    #[test]
+    fn dedup_is_scoped_to_the_session() {
+        with_isolated_store(|| {
+            check_and_record_dedup("output Z", 1800, Some("session-a"));
+            // Another session never saw it — must not collapse.
+            assert!(matches!(
+                check_and_record_dedup("output Z", 1800, Some("session-b")),
+                Dedup::Fresh
+            ));
+            assert!(matches!(
+                check_and_record_dedup("output Z", 1800, Some("session-a")),
+                Dedup::SeenRecently
             ));
         });
     }

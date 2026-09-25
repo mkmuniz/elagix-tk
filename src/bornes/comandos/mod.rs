@@ -151,16 +151,21 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
     }
 
     // Deduplication (§8.3) — the only one of the two store techniques that
-    // actually cuts tokens. Approximates "same session" with a time window
-    // (documented limitation in specs §8.3: there's no stable session id
-    // available here).
+    // actually cuts tokens. Scoped to the agent's real session when it
+    // exposes one (`CLAUDE_CODE_SESSION_ID`, or `ELAGIX_SESSION_ID` for any
+    // other agent); otherwise approximated by the time window alone.
     if output.len() >= DEDUP_MIN_BYTES {
         let hash = store::put(&output); // ensures it's recoverable via `elagix show`
         let window: u64 = std::env::var("ELAGIX_DEDUP_WINDOW_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(1800);
-        if let store::Dedup::SeenRecently = store::check_and_record_dedup(&output, window) {
+        let session = ["ELAGIX_SESSION_ID", "CLAUDE_CODE_SESSION_ID"]
+            .iter()
+            .find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()));
+        if let store::Dedup::SeenRecently =
+            store::check_and_record_dedup(&output, window, session.as_deref())
+        {
             let msg = format!("(same as previous output — elagix show {hash} to view it again)");
             if msg.len() < output.len() {
                 output = msg;
