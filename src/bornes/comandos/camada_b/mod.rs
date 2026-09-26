@@ -121,7 +121,6 @@ macro_rules! embedded {
 }
 
 const EMBEDDED: &[(&str, &str)] = embedded![
-    "docker-images",
     "docker-pull",
     "docker-build",
     "git-branch",
@@ -138,7 +137,6 @@ const EMBEDDED: &[(&str, &str)] = embedded![
     "go-stderr",
     "js-build",
     "js-lint",
-    "git-pull",
     "docker-compose-build",
 ];
 
@@ -396,18 +394,6 @@ mod tests {
                     "24 problems (18 errors, 6 warnings)",
                 ],
                 &["error    Unexpected"],
-            ),
-            (
-                "git-pull",
-                include_str!("../filters-toml/fixtures/git-pull.stdout.txt"),
-                &[
-                    "Updating 2e42548..137537e",
-                    "Fast-forward",
-                    "26 files changed",
-                    "[+26 lines omitted: diffstat, one line per file]",
-                    "[+26 lines omitted: file mode changes]",
-                ],
-                &["Comp13.tsx", "create mode"],
             ),
             (
                 "docker-compose-build",

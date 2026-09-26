@@ -78,6 +78,34 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         {
             (rest_args.to_vec(), Some("git-diff"))
         }
+        "git"
+            if matches!(
+                rest_args.first().map(String::as_str),
+                Some("pull") | Some("merge")
+            ) =>
+        {
+            (rest_args.to_vec(), Some("git-pull"))
+        }
+        "git"
+            if rest_args.first().map(String::as_str) == Some("branch")
+                && rest_args[1..]
+                    .iter()
+                    .any(|a| matches!(a.as_str(), "-a" | "-r" | "--all" | "--remotes")) =>
+        {
+            (rest_args.to_vec(), Some("git-branch"))
+        }
+        "docker"
+            if matches!(
+                rest_args
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                ["images", ..] | ["ps", ..] | ["image", "ls", ..] | ["container", "ls", ..]
+            ) =>
+        {
+            (rest_args.to_vec(), Some("table"))
+        }
         "pytest" => (rest_args.to_vec(), Some("pytest")),
         "cargo" if rest_args.first().map(String::as_str) == Some("test") => {
             (rest_args.to_vec(), Some("cargo-test"))
@@ -147,6 +175,9 @@ pub fn run(invoked_name: &str, rest_args: &[String]) -> ExitCode {
         Some("git-diff") => Some(filters::git_diff::filter(&raw)),
         Some("pytest") => Some(filters::pytest::filter(&raw)),
         Some("cargo-test") => Some(filters::cargo_test::filter(&raw)),
+        Some("git-pull") => Some(filters::git_pull::filter(&raw)),
+        Some("git-branch") => Some(filters::git_branch::filter(&raw)),
+        Some("table") => Some(filters::table::filter(&raw)),
         _ => camada_b_match.map(|f| camada_b::apply(&f.pipeline, &raw, captured.exit_code)),
     };
     let mut output = finalize(filtered, &raw);

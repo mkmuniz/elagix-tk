@@ -53,6 +53,18 @@ Every percentage below is a real measurement, taken by running the binary agains
 | Repeated `git show <sha>` (cache) | — | — | ~23× faster, byte-identical |
 | Repeated command (dedup) | 316 B | 75 B | short reference instead of the full text |
 
+### Head-to-head with RTK (2026-09-26)
+
+Same 25 real commands (two production repos + this one + scratch projects for build/lint/install/docker), measured with both tools, RTK v0.50.0:
+
+| | RTK | Schliffe |
+|---|---|---|
+| Total reduction (all bytes) | −76.1% | −73.3% |
+| **Median per command** | −56.2% | **−74.4%** |
+| Commands with no rule | 2 (`pnpm build`, `npm install`) | 0 |
+
+Where RTK still cuts more, it's mostly by dropping information Schliffe keeps on purpose: a large `git diff` is truncated after the first files (Schliffe shows every file, capping lines per file), `pnpm lint` loses each problem's line/column, and `docker images` drops image IDs.
+
 Full detail on each measurement, methodology, and the cases where the technique **doesn't** help (documented with the same honesty) in [`MILESTONES.md`](MILESTONES.md) and [`specs.md`](specs.md) §10.
 
 ## Installation

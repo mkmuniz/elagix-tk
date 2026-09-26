@@ -2,6 +2,18 @@
 
 All notable changes to this project are recorded here. Format loosely inspired by [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **`cargo test` could report success on a failed run.** The filter only read the last `test result:` line; with several suites (unit + integration + doc-tests), a failure in an early suite followed by a passing last one read as `test result: ok` (only the exit code was right). It now reads every suite.
+
+### Added
+- `cargo test`: one totals line when everything passes (`cargo test: 89 passed; 0 failed (2 suites, 17.71s)`); on failure, each suite's result plus every failing test with where it panicked and the message.
+- `git pull`/`git merge`: a clean fast-forward or merge becomes one line (range + summary); conflicts and errors are kept verbatim.
+- `git branch -a`/`-r`: remote branches grouped per remote, prefix stripped, mirrors of local branches counted instead of listed, long lists capped (recoverable).
+- `docker images`/`docker ps`: column padding removed (cells joined with ` | `), long tables capped (recoverable).
+- Head-to-head benchmark against RTK v0.50.0 on 25 real commands (README).
+
 ## [0.3.0] — 2026-09-25
 
 ### Changed

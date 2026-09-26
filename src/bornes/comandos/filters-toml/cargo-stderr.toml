@@ -12,4 +12,6 @@ stream = "stderr"
 action = "strip_lines_matching"
 patterns = [
     "^\\s+(Compiling|Checking|Downloaded|Downloading|Updating|Locking|Adding|Blocking|Fresh|Documenting) ",
+    "^\\s+Running (unittests |tests/|benches/)",
+    "^\\s+Doc-tests ",
 ]

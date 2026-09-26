@@ -47,6 +47,8 @@ Every item here comes from a gap already recorded in `KNOWN_ISSUES.md` (which ex
 
 ## Quality / process
 
+- [x] Benchmark against RTK on real commands and close the gaps that don't cost information: `git pull` one-liner, `cargo test` totals (fixing a false-success bug), `git branch -a` grouping, `docker images`/`ps` column compaction (2026-09-26).
+
 - [x] `schliffe stats` — savings report (24h/7d/all time, top savers, unfiltered commands), fed by a size-only log from the shim and the MCP proxy (2026-09-25).
 
 - [x] End-to-end tests against the compiled binary — `tests/e2e.rs` (12 tests: agent gating, exit codes, 127, self-recursion, `schliffe show`, session dedup, stderr filters, rule 6, `compress`).
