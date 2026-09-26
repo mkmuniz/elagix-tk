@@ -85,17 +85,7 @@ Measured on real repositories, bytes before → after (tokens ≈ bytes / 4):
 | `npm install` | 674 → 166 B | −75% |
 | `pnpm lint` (24 problems, all kept) | 3,317 → 2,228 B | −33% |
 
-### Compared with RTK
-
-Same 25 commands, [RTK](https://github.com/rtk-ai/rtk) v0.50.0:
-
-| | RTK | Schliffe |
-|---|---|---|
-| Total cut (all bytes) | −76.1% | −73.3% |
-| **Median per command** | −56.2% | **−74.4%** |
-| Commands with no rule | 2 (`pnpm build`, `npm install`) | 0 |
-
-Where RTK cuts more, it mostly drops information Schliffe keeps on purpose: a large `git diff` stops after the first files (Schliffe shows every file, capping lines per file), lint output loses line/column, `docker images` loses image IDs.
+Across 25 real commands (two production repos, this repo, and build/lint/install/docker projects): **−73% of all bytes, median −74% per command**, with no command left without a rule.
 
 ### What to expect overall
 
@@ -203,11 +193,11 @@ tests/e2e.rs       # end-to-end tests against the compiled binary
 
 ## Background
 
-Schliffe started while setting up RTK on Windows: RTK depends on Claude Code rewriting commands through a hook (`PreToolUse.updatedInput`), which is [silently ignored on Windows](https://github.com/anthropics/claude-code/issues/79321). So Schliffe intercepts from the outside — a `$PATH` shim, like `nvm` or `pyenv` — and only uses a hook where nothing else can reach (remote MCP, images). It was called **Elagix** until v0.3.0; *Schliffe* is German for the cuts of a gem.
+Schliffe exists because the hook-based way of doing this — having Claude Code rewrite each command through `PreToolUse.updatedInput` — is [silently ignored on Windows](https://github.com/anthropics/claude-code/issues/79321). So Schliffe intercepts from the outside — a `$PATH` shim, like `nvm` or `pyenv` — and only uses a hook where nothing else can reach (remote MCP, images). It was called **Elagix** until v0.3.0; *Schliffe* is German for the cuts of a gem.
 
 ## Documentation
 
-- [`specs.md`](specs.md) — architecture, rules, and the RTK audit behind the design.
+- [`specs.md`](specs.md) — architecture, rules, and the audit behind the design.
 - [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) — gaps and limitations, with the reasons.
 - [`TASKS.md`](TASKS.md) — backlog.
 - [`MILESTONES.md`](MILESTONES.md) — development history and live validations.

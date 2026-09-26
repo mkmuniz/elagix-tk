@@ -12,7 +12,7 @@ All notable changes to this project are recorded here. Format loosely inspired b
 - `git pull`/`git merge`: a clean fast-forward or merge becomes one line (range + summary); conflicts and errors are kept verbatim.
 - `git branch -a`/`-r`: remote branches grouped per remote, prefix stripped, mirrors of local branches counted instead of listed, long lists capped (recoverable).
 - `docker images`/`docker ps`: column padding removed (cells joined with ` | `), long tables capped (recoverable).
-- Head-to-head benchmark against RTK v0.50.0 on 25 real commands (README).
+- Benchmark on 25 real commands (README: −73% of all bytes, median −74% per command).
 
 ## [0.3.0] — 2026-09-25
 
