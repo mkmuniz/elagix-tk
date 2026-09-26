@@ -2,194 +2,215 @@
 
 <img src="assets/schliffe-logo.svg" width="600" alt="schliffe — cut the noise, keep the signal">
 
-**Cuts token waste in coding-agent sessions (Claude Code) — for real, without depending on Claude Code features we've already proven broken.**
+**Cuts the noise out of what AI coding agents read — command output, MCP results and images — without hiding what matters.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](Cargo.toml)
 [![CI](https://github.com/mkmuniz/schliffe-tk/actions/workflows/ci.yml/badge.svg)](https://github.com/mkmuniz/schliffe-tk/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/mkmuniz/schliffe-tk)](https://github.com/mkmuniz/schliffe-tk/releases/latest)
 
 </div>
 
 ---
 
-## Why this project exists
+## What it does
 
-While setting up [RTK](https://github.com/rtk-ai/rtk) — the tool that inspired this project — we discovered, by testing it live, that its automatic command-rewriting mechanism depends on the `updatedInput` field returned by Claude Code's `PreToolUse` hooks. That field is **silently ignored on Windows** ([publicly confirmed issue, `anthropics/claude-code` #79321](https://github.com/anthropics/claude-code/issues/79321)). Without that mechanism, RTK never even gets invoked — there's no fallback.
+When Claude Code (or another agent) runs `git diff`, `pnpm build` or `cargo test`, it reads the whole output — progress bars, padding, 190 remote branches, one line per passing test. Schliffe sits in between and hands the agent a compact version:
 
-We investigated two more hook candidates for solving the same kind of problem (`UserPromptSubmit`, `PostToolUse.updatedToolOutput`) — all three turned out broken or missing on this platform. Design conclusion: **no Schliffe mechanism can depend on a Claude Code hook to mutate a command, a prompt, or an output.** It has to intercept from the outside, in layers Claude Code doesn't even know exist.
+- **Same command, no prefix.** The agent runs `git log`; Schliffe answers. Nothing to configure per project.
+- **Only for AI agents.** You, your editor, git hooks and scripts get the untouched output.
+- **Nothing is lost.** Every cut is marked, and `schliffe show <hash>` returns the original.
 
-Schliffe does this with a **`$PATH` shim** (the same decades-old technique used by `nvm`/`pyenv`/`asdf`) for shell commands, a **JSON-RPC protocol proxy** for MCP tools, and an **extractive summarization** function for prose — three axes of waste, three independent interception mechanisms, none of them dependent on a hook.
+```text
+$ git log -3                       # as the agent sees it
+5fab882a05 2026-09-24 23:31 Mkmuniz — MCP: never compress file reads, recoverable trims, crash handling
+e734d79dc1 2026-09-24 23:24 Mkmuniz — Add end-to-end tests against the compiled binary
+cd0a83980c 2026-09-24 23:21 Mkmuniz — Layer B: stderr support and first batch of long-tail filters
+[+16 lines omitted]
+(full output: schliffe show a3b5335212fe6e0a)
+```
 
-## What it optimizes
+## Install
 
-| Module (`borne`) | What it compresses | Mechanism | Status |
-|---|---|---|---|
-| `bornes/comandos` | Output of `git`, `cargo`, `pytest`, `docker`, `npm`, `pnpm`, `yarn`, `pip`, `dotnet`, `go`, `terraform` | `$PATH` shim — intercepts, filters, returns | ✅ Active, validated live |
-| `bornes/mcp` | MCP tool schema (lazy loading) + call result | JSON-RPC proxy over stdio | ✅ Validated against a real server (`@modelcontextprotocol/server-filesystem`); opt-in per server |
-| `bornes/hook` | Remote MCP results (HTTP/OAuth servers like Figma) + large images (MCP screenshots, images opened with Read) | Claude Code `PostToolUse` hook (`updatedToolOutput`) | ✅ macOS / Linux / WSL — ⚠️ **not native Windows** |
-| `bornes/prosa` | Commit message body (`git log`/`git show`) | TF-IDF extractive summarization (no model, no embeddings) | ✅ Active, integrated into `comandos`'s Layer A |
+Requires [Rust](https://rustup.rs). Takes about 2 minutes (it builds from source).
 
-Any other command (`ls`, `curl`, `make`, `jq`, ...) passes straight through, unfiltered — see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for full coverage details and what's missing.
+1. Clone and install:
+   ```bash
+   git clone https://github.com/mkmuniz/schliffe-tk.git
+   cd schliffe-tk
+   bash install.sh
+   ```
+2. Open a new terminal. In VS Code, run **Reload Window**.
+3. Start a new Claude Code session.
 
-## Measured results (not estimates)
+`install.sh` puts the shims first in your `PATH` (bash and zsh), registers the Claude Code hook, and migrates an old Elagix install if there is one. Windows: see [Platforms](#platforms).
 
-Every percentage below is a real measurement, taken by running the binary against real repositories during this project's development — not an estimate, not a marketing number.
+## Check it's working
 
-| Command | Raw | Schliffe | Reduction |
-|---|---|---|---|
-| `git status` (clean branch) | 174 B | 28 B | 84% |
-| `git log -5` | 9,313 B | 907 B | 90.3% (one line per commit — all 5 stay visible) |
-| `git show` (6-file diff) | 32,001 B | 5,740 B | 82.1% (RTK: 71.4% on the same diff) |
-| `pytest` (collection error) | 3,245 B | 106 B | 96.7% (preserves the real error reason; RTK doesn't) |
-| `docker images` (21 images) | 1,782 B | 1,234 B | 30.8% |
-| `docker build` (3-step Dockerfile) | 1,719 B | 175 B | 89.8% |
-| `npm install` (deprecated deps) | 675 B | 204 B | 69.8% |
-| `pnpm build` (Next.js 16, 17 routes) | 1,071 B | 253 B | 76.4% |
-| `git pull` (26 files) | 2,650 B | 208 B | 92.2% |
-| `pnpm lint` (ESLint, 24 problems — all kept) | 3,317 B | 2,228 B | 32.8% |
-| MCP `tools/list` (2 tools) | 1,047 B | 566 B | 45.9% |
-| MCP `tools/list` (real filesystem server, 14 tools) | 13,018 B | 2,940 B | 77.4% |
-| MCP `tools/call` (JSON result) | 16,658 B | 4,530 B | 72.8% |
-| Repeated `git show <sha>` (cache) | — | — | ~23× faster, byte-identical |
-| Repeated command (dedup) | 316 B | 75 B | short reference instead of the full text |
+```bash
+which git        # → ~/.schliffe/shims/git
+schliffe stats   # savings so far
+```
 
-### Head-to-head with RTK (2026-09-26)
+```text
+             commands filtered     before      after  saved ~tokens saved
+last 24h          103       32    97.8 KB    49.4 KB   -50%         12.4k
 
-Same 25 real commands (two production repos + this one + scratch projects for build/lint/install/docker), measured with both tools, RTK v0.50.0:
+top savings (all time):
+  git diff                     4×     65.5 KB →    25.6 KB   -61%
+  git log                     12×      8.4 KB →     3.9 KB   -54%
+
+passed through with no filter (candidates for a new rule):
+  git status 14×, git commit 11×, git add 10×, ...
+```
+
+`stats` logs only command names and sizes (`~/.schliffe/stats.log`) — never arguments or output.
+
+## Results
+
+Measured on real repositories, bytes before → after (tokens ≈ bytes / 4):
+
+| Command | Before → After | Cut |
+|---|---|---|
+| `cargo test` (2 suites, all passing) | 7,818 → 124 B | −98% |
+| `git pull` (26 files) | 2,467 → 151 B | −94% |
+| `git branch -a` (190 remote branches) | 10,258 → 850 B | −92% |
+| `git show HEAD` | 10,527 → 1,441 B | −86% |
+| `git log -30` | 12,039 → 2,323 B | −81% |
+| `docker build` | 1,492 → 292 B | −80% |
+| `git diff` (62 files) | 248,098 → 51,234 B | −79% |
+| MCP `tools/list` (real server, 14 tools) | 13,018 → 2,940 B | −77% |
+| `pnpm build` (Next.js) | 1,070 → 255 B | −76% |
+| `git status` | 258 → 62 B | −76% |
+| `npm install` | 674 → 166 B | −75% |
+| `pnpm lint` (24 problems, all kept) | 3,317 → 2,228 B | −33% |
+
+### Compared with RTK
+
+Same 25 commands, [RTK](https://github.com/rtk-ai/rtk) v0.50.0:
 
 | | RTK | Schliffe |
 |---|---|---|
-| Total reduction (all bytes) | −76.1% | −73.3% |
+| Total cut (all bytes) | −76.1% | −73.3% |
 | **Median per command** | −56.2% | **−74.4%** |
 | Commands with no rule | 2 (`pnpm build`, `npm install`) | 0 |
 
-Where RTK still cuts more, it's mostly by dropping information Schliffe keeps on purpose: a large `git diff` is truncated after the first files (Schliffe shows every file, capping lines per file), `pnpm lint` loses each problem's line/column, and `docker images` drops image IDs.
+Where RTK cuts more, it mostly drops information Schliffe keeps on purpose: a large `git diff` stops after the first files (Schliffe shows every file, capping lines per file), lint output loses line/column, `docker images` loses image IDs.
 
-Full detail on each measurement, methodology, and the cases where the technique **doesn't** help (documented with the same honesty) in [`MILESTONES.md`](MILESTONES.md) and [`specs.md`](specs.md) §10.
+### What to expect overall
 
-## Installation
+In real sessions most tokens are the conversation itself, re-read on every turn — not command output. Measured on a week of use, Schliffe's share of the total bill is **around 1%**. It removes noise; it doesn't make long conversations cheap. The biggest lever there is starting a new session per task.
 
-Requires [Rust](https://rustup.rs) — the installer builds from source (there's no release/prebuilt-binary pipeline yet).
+## What it covers
 
-**Linux / macOS / WSL:**
-```bash
-git clone https://github.com/mkmuniz/schliffe-tk.git
-cd schliffe-tk
-bash install.sh
-```
+| Source | Examples | How |
+|---|---|---|
+| Shell commands | `git`, `cargo`, `pytest`, `docker`, `npm`/`pnpm`/`yarn`, `pip`, `dotnet`, `go`, `terraform` | `$PATH` shim |
+| Remote MCP servers | Figma and other HTTP/OAuth servers | Claude Code hook |
+| Images | Screenshots from MCP tools, PNG/JPEG opened with Read (resized to 1280px) | Claude Code hook |
+| Local MCP servers | Any stdio server you wrap | JSON-RPC proxy |
+| Commit messages | Body of `git log` / `git show` summarized to one sentence | TF-IDF, no model |
 
-**Windows (native, outside WSL):**
-```powershell
-git clone https://github.com/mkmuniz/schliffe-tk.git
-cd schliffe-tk
-./install.ps1
-```
-> ⚠️ `install.ps1` has only been tested in safe mode (no full activation) — none of this project's development machines have native `git`/`cargo`/`npm` on Windows to validate it end to end. See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
+Commands without a rule (`ls`, `curl`, `make`...) run untouched, streaming live.
 
-After installing, open a new terminal (and reload VS Code / start a new Claude Code session). No need to prefix anything — when an AI agent runs `git status`, `git log`, `cargo test`, etc., the output already comes out filtered. Humans and regular scripts get the untouched output.
+## Safety rules
 
-Opt-in/out per tool: `SCHLIFFE_FORCE=1` turns filtering on for an agent that doesn't set `CLAUDECODE`/`AI_AGENT`; `SCHLIFFE_DISABLE=1` turns it off (e.g. `SCHLIFFE_DISABLE=1 git diff > x.patch`).
+Compression that turns "interrupted" into "success" misleads the agent in later steps ([arXiv 2607.13071](https://arxiv.org/abs/2607.13071)). So:
 
-## Remote MCP servers and images (Claude Code hook)
+1. Exit codes are always preserved.
+2. No "success" shortcut when the process failed.
+3. **Fail-open:** if a filter errors, the raw output goes through.
+4. The raw output is always recoverable (`schliffe show <hash>`).
+5. Never infer or invent a result — only reformat what came out.
+6. Filtered output is never larger than the original.
+7. Uses the caller's own `PATH` — never resolves binaries on its own.
 
-Some things never touch a shell or a local MCP pipe: **remote MCP servers** (HTTP + OAuth, e.g. Figma, `https://mcp.figma.com/mcp`) and **images** Claude opens with its Read tool or receives from an MCP tool (screenshots). For those, Schliffe plugs into Claude Code as a `PostToolUse` hook — **`install.sh` registers it automatically** when Claude Code is installed (`SCHLIFFE_NO_HOOK=1 bash install.sh` to skip). To manage it by hand:
+Details and the evidence behind each rule: [`specs.md`](specs.md) §4.
 
-```bash
-schliffe hook install     # adds the hook to ~/.claude/settings.json (backup kept)
-schliffe hook uninstall   # removes it
-```
+## Configuration
 
-Open a new Claude Code session after installing. After each `Read` or `mcp__*` call, Claude Code hands the result to `schliffe hook post-tool-use`, which:
+| Variable | Effect |
+|---|---|
+| `SCHLIFFE_DISABLE=1` | Turn filtering off (e.g. `SCHLIFFE_DISABLE=1 git diff > x.patch`) |
+| `SCHLIFFE_FORCE=1` | Filter for an agent that doesn't set `CLAUDECODE` / `AI_AGENT` |
+| `SCHLIFFE_NO_STATS=1` | Don't record `stats` |
+| `SCHLIFFE_IMAGE_MAX_EDGE` | Image size cap in px (default `1280`, `0` = off) |
+| `SCHLIFFE_MCP_RAW_TOOLS=a,b` | MCP tools never to compress |
+| `SCHLIFFE_FILTERS_DIR` | Extra TOML rules (default `~/.schliffe/filters`) |
+| `SCHLIFFE_NO_HOOK=1` | `install.sh`: skip the Claude Code hook |
 
-- compresses JSON text results of MCP tools (same rules as the stdio proxy: nulls dropped, long strings/arrays trimmed with an `schliffe show` hint; file-reading tools never touched);
-- shrinks images whose long edge exceeds 1280px (`SCHLIFFE_IMAGE_MAX_EDGE`, `0` = off), keeping aspect ratio and format. Claude bills images by pixel area, and the API already downscales anything above ~1568px on the long edge or ~1.15 megapixels — so at the default 1280px the saving is modest (measured live: 2400×1500 image, −11%; a Retina screenshot ≈ −7%). Lower caps save much more (1024px ≈ −40%) at the cost of small UI text becoming harder to read.
+Commands: `schliffe stats` · `schliffe show <hash>` · `schliffe hook install|uninstall` · `schliffe mcp` · `schliffe compress` · `schliffe store gc|clear` · `schliffe --version`.
 
-Anything it doesn't recognize is left untouched (for built-in tools, Claude Code also discards a replacement that doesn't match the tool's output schema).
+## Platforms
 
-> ⚠️ **Not supported on native Windows** — Claude Code's hook output replacement was verified broken there (the reason this project avoided hooks in the first place). Works on macOS, Linux and WSL; `schliffe hook install` refuses to run on native Windows.
+| | Shim | Claude Code hook |
+|---|---|---|
+| macOS | ✅ validated (zsh) | ✅ validated |
+| Linux / WSL | ✅ validated (bash) | ✅ |
+| Windows (native) | ⚠️ `install.ps1`, only partially validated | ❌ Claude Code ignores hook output replacement there |
 
-## Checking that it's saving
+Prebuilt binaries for all four targets are attached to each [release](https://github.com/mkmuniz/schliffe-tk/releases/latest).
 
-```bash
-schliffe stats
-```
+## Local MCP servers
 
-Shows how many commands AI agents ran through Schliffe, how many were filtered, bytes before/after and estimated tokens saved (last 24h, 7 days, all time), the commands saving the most, and the ones that passed through with no filter yet (candidates for a new rule). Only the command name and sizes are logged (`~/.schliffe/stats.log`) — never arguments or output. `SCHLIFFE_NO_STATS=1` turns it off.
-
-## Using the MCP proxy
-
-MCP servers aren't intercepted automatically — wrap each one you want compressed by putting `schliffe mcp [--keep-schemas] --` in front of its command. In Claude Code:
+Wrap a stdio server by putting `schliffe mcp --keep-schemas --` in front of its command:
 
 ```bash
 claude mcp add filesystem -- schliffe mcp --keep-schemas -- npx -y @modelcontextprotocol/server-filesystem ~/projects
 ```
 
-- **`--keep-schemas`** (recommended for Claude Code): leaves `tools/list` untouched and only compresses tool results. Claude Code already loads MCP tool schemas on demand through its own tool search, which relies on the full descriptions — shrinking them there costs more than it saves. Drop the flag for clients that load every schema up front.
-- Results are compressed only when they're JSON (nulls dropped, long strings/arrays trimmed with an `schliffe show <hash>` recovery hint). Tools that read files (`read`, `file`, `cat`, `open`, `download` in the name, or listed in `SCHLIFFE_MCP_RAW_TOOLS=a,b`) are never touched, so a file's content always arrives intact.
-- If the server dies mid-call, pending requests get a JSON-RPC error instead of hanging.
+- `--keep-schemas` leaves the tool list untouched (recommended for Claude Code, which already loads schemas on demand). Without it, `tools/list` is shrunk and a `get_tool_schema` tool is added.
+- Only JSON results are compressed. Tools that read files (`read`, `file`, `cat`, `open`, `download`...) are never touched.
+- If the server dies mid-call, pending requests get an error instead of hanging.
+
+Remote servers (like Figma) don't need this — the hook covers them.
 
 ## How it works
 
 ```mermaid
 sequenceDiagram
     participant Claude as Claude Code
-    participant Shell
-    participant Shim as ~/.schliffe/shims/git (Schliffe binary)
-    participant RealGit as real git (original PATH)
-    Claude->>Shell: runs "git status" (no prefix)
-    Shell->>Shim: resolves "git" -> the shim (ahead in PATH)
-    Shim->>Shim: is stdout a TTY, or is no AI agent calling?
-    alt TTY or no agent (human, VS Code Git panel, git hooks, scripts)
-        Shim->>RealGit: exec directly, no filtering
-    else AI agent capturing (CLAUDECODE / AI_AGENT / SCHLIFFE_FORCE set)
-        Shim->>RealGit: runs the real git, captures stdout + exit code
-        RealGit-->>Shim: raw output
-        Shim->>Shim: Layer A (dedicated parser) or Layer B (declarative rule)
-        Shim-->>Claude: compressed output, exit code preserved
+    participant Shim as ~/.schliffe/shims/git
+    participant Git as real git
+    Claude->>Shim: git status (no prefix — the shim is first in PATH)
+    alt human, editor, script (no agent) or a command with no rule
+        Shim->>Git: exec directly, live output
+    else AI agent (CLAUDECODE / AI_AGENT / SCHLIFFE_FORCE)
+        Shim->>Git: run and capture
+        Git-->>Shim: raw output + exit code
+        Shim-->>Claude: filtered output, same exit code
     end
 ```
 
-Two filtering layers for `bornes/comandos`: **Layer A** (hand-written parsers for the highest-volume commands — `git status/log/diff/show`, `pytest`, `cargo test`) and **Layer B** (a declarative TOML rule engine for the long tail, `docker`/`npm`/`terraform`/etc., extensible without recompiling).
+- **Layer A** — hand-written parsers for the heavy hitters: `git status/log/diff/show/pull/branch`, `cargo test`, `pytest`, `docker images/ps`.
+- **Layer B** — declarative TOML rules for the long tail (installs, builds, linters, docker, dotnet, go…), extensible without recompiling.
+- **Store** — keeps raw outputs for `schliffe show`, caches `git show <sha>`, and collapses an identical output repeated in the same agent session.
+- **Hook** — a Claude Code `PostToolUse` hook rewrites remote MCP results and oversized images before the model sees them.
 
-## Design principles (non-negotiable)
-
-Motivated by a real, documented risk ([arXiv 2607.13071](https://arxiv.org/abs/2607.13071) — compression that turns "process interrupted" into "confirmed success" for an agent's later sessions):
-
-1. Exit code always preserved and signaled unambiguously.
-2. No "success"/"no changes" shortcut if the process failed or was interrupted.
-3. **Fail-open**: an error in the filter lets the raw output through unmodified.
-4. Raw output always recoverable (`schliffe show <hash>`).
-5. Never falsify or infer a result — only reformats what actually came out.
-6. **Filtered output can never be larger than the original** — if it doesn't shrink, it isn't applied.
-7. Always inherits the parent process's own `$PATH`/environment — never resolves a binary on its own.
-
-Full detail on each rule and the empirical evidence behind it: [`specs.md`](specs.md) §4.
-
-## Project structure
+## Project layout
 
 ```
 src/
-  main.rs        # entry point: meta-command (core::meta) vs shim (bornes::comandos)
-  core/
-    store.rs      # content-addressed store — cache, progressive disclosure, dedup
-    meta.rs        # routes `schliffe show/store/compress/mcp`
+  main.rs          # meta-command (`schliffe ...`) vs shim (`git`, `npm`...)
+  core/            # store (recovery, cache, dedup), stats, meta-commands
   bornes/
-    comandos/      # $PATH shim + Layer A (parsers) + Layer B (TOML rules)
-    mcp/            # JSON-RPC proxy, schema lazy-loading + result compression
-    prosa/          # TF-IDF extractive summarization
+    comandos/      # $PATH shim — Layer A parsers + Layer B TOML rules
+    hook/          # Claude Code PostToolUse hook — remote MCP + images
+    mcp/           # stdio JSON-RPC proxy for local MCP servers
+    prosa/         # TF-IDF commit-message summaries
+tests/e2e.rs       # end-to-end tests against the compiled binary
 ```
+
+## Background
+
+Schliffe started while setting up RTK on Windows: RTK depends on Claude Code rewriting commands through a hook (`PreToolUse.updatedInput`), which is [silently ignored on Windows](https://github.com/anthropics/claude-code/issues/79321). So Schliffe intercepts from the outside — a `$PATH` shim, like `nvm` or `pyenv` — and only uses a hook where nothing else can reach (remote MCP, images). It was called **Elagix** until v0.3.0; *Schliffe* is German for the cuts of a gem.
 
 ## Documentation
 
-- [`specs.md`](specs.md) — full technical specification: architecture, business rules, the mechanics of each technique with real examples, the empirical RTK audit that drove the decisions.
-- [`MILESTONES.md`](MILESTONES.md) — M0-M8 development history, with every live validation and the real bugs found along the way.
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) — known gaps and limitations, with context on why.
-- [`TASKS.md`](TASKS.md) — actionable backlog derived from the known issues.
+- [`specs.md`](specs.md) — architecture, rules, and the RTK audit behind the design.
+- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) — gaps and limitations, with the reasons.
+- [`TASKS.md`](TASKS.md) — backlog.
+- [`MILESTONES.md`](MILESTONES.md) — development history and live validations.
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes.
 
-## Contributing
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## License
-
-[Apache License 2.0](LICENSE).
+Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md) · License: [Apache 2.0](LICENSE).
